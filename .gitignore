@@ -145,3 +145,4 @@ storybook-static
 
 # OS
 .DS_Store
+.vercel
