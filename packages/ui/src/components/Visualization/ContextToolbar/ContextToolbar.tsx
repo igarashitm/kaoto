@@ -5,6 +5,7 @@ import { EntitiesContext } from '../../../providers/entities.provider';
 import './ContextToolbar.scss';
 import { DSLSelector } from './DSLSelector/DSLSelector';
 import { FlowClipboard } from './FlowClipboard/FlowClipboard';
+import { FlowExportDocument } from './FlowExportDocument/FlowExportDocument';
 import { FlowExportImage } from './FlowExportImage/FlowExportImage';
 import { FlowsMenu } from './Flows/FlowsMenu';
 import { NewEntity } from './NewEntity/NewEntity';
@@ -40,6 +41,9 @@ export const ContextToolbar: FunctionComponent = () => {
           </ToolbarItem>,
           <ToolbarItem key="toolbar-export-image">
             <FlowExportImage />
+          </ToolbarItem>,
+          <ToolbarItem key="toolbar-export-document">
+            <FlowExportDocument />
           </ToolbarItem>,
           <RuntimeSelector key="runtime-selector" />,
         ])}
