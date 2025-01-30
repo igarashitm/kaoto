@@ -1,13 +1,45 @@
-import { BaseVisualCamelEntity, IVisualizationNode } from '../../../../models';
-import { MarkdownEntry, TableCell, TableEntry, TableRow, tsMarkdown } from 'ts-markdown';
+import { BaseVisualCamelEntity, CamelRouteVisualEntity } from '../../../../models';
+import { MarkdownEntry, TableRow, tsMarkdown } from 'ts-markdown';
 import JSZip from 'jszip';
 import { toBlob } from 'html-to-image';
 import { CamelResource } from '../../../../models/camel';
 import { IVisibleFlows } from '../../../../models/visualization/flows/support/flows-visibility';
-import { isDataMapperNode, XSLT_COMPONENT_NAME } from '../../../../utils';
-import { Step } from '@kaoto/camel-catalog/types';
+import { CamelRestVisualEntity } from '../../../../models/visualization/flows/camel-rest-visual-entity';
+import { CamelRestConfigurationVisualEntity } from '../../../../models/visualization/flows/camel-rest-configuration-visual-entity';
+import { CamelRouteConfigurationVisualEntity } from '../../../../models/visualization/flows/camel-route-configuration-visual-entity';
+import { BaseCamelEntity } from '../../../../models/camel/entities';
+import { BeansEntity, MetadataEntity } from '../../../../models/visualization/metadata';
+import { PipeErrorHandlerEntity } from '../../../../models/visualization/metadata/pipeErrorHandlerEntity';
+import { RouteTemplateBeansEntity } from '../../../../models/visualization/metadata/routeTemplateBeansEntity';
+import { CamelErrorHandlerVisualEntity } from '../../../../models/visualization/flows/camel-error-handler-visual-entity';
+import { CamelInterceptVisualEntity } from '../../../../models/visualization/flows/camel-intercept-visual-entity';
+import { CamelInterceptFromVisualEntity } from '../../../../models/visualization/flows/camel-intercept-from-visual-entity';
+import { CamelInterceptSendToEndpointVisualEntity } from '../../../../models/visualization/flows/camel-intercept-send-to-endpoint-visual-entity';
+import { CamelOnCompletionVisualEntity } from '../../../../models/visualization/flows/camel-on-completion-visual-entity';
+import { CamelOnExceptionVisualEntity } from '../../../../models/visualization/flows/camel-on-exception-visual-entity';
+import { BeansParser } from './parsers/beans-parser';
+import { RestParser } from './parsers/rest-parser';
+import { RouteParser } from './parsers/route-parser';
+import { MiscParser } from './parsers/misc-parser';
+import { ParsedTable } from './parsers/parsed-table';
 
 export class DocumentationHelper {
+  static readonly MD_LICENSE_HEADER: ReadonlyArray<string> = [
+    'Copyright \\(C\\) 2024 Red Hat, Inc.',
+    '',
+    'Licensed under the Apache License, Version 2.0 \\(the "License"\\);',
+    'you may not use this file except in compliance with the License.',
+    'You may obtain a copy of the License at',
+    '',
+    '      http://www.apache.org/licenses/LICENSE-2.0',
+    '',
+    'Unless required by applicable law or agreed to in writing, software',
+    'distributed under the License is distributed on an "AS IS" BASIS,',
+    'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.',
+    'See the License for the specific language governing permissions and',
+    'limitations under the License.',
+  ];
+
   static generateDocumentationZip(flowImage: Blob, markdownText: string, fileNameBase: string): Promise<Blob> {
     const imageFileName = fileNameBase + '.png';
     const markdownFileName = fileNameBase + '.md';
@@ -36,213 +68,88 @@ export class DocumentationHelper {
   }
 
   static generateMarkdown(camelResource: CamelResource, visibleFlows: IVisibleFlows, flowImageFileName: string) {
-    const data: MarkdownEntry[] = [
+    const markdown: MarkdownEntry[] = [
       ' ',
-      ...DocumentationHelper.licenseHeader.map((line) => `[comment]: # (${line})`),
+      ...DocumentationHelper.MD_LICENSE_HEADER.map((line) => `[comment]: # (${line})`),
       ' ',
-      { h1: 'Flow Diagram' },
-      { img: { alt: 'Flow Diagram', source: flowImageFileName } },
-      { h1: 'Step Details' },
+      { h1: 'Diagram' },
+      { img: { alt: 'Diagram', source: flowImageFileName } },
     ];
 
-    const stepTable: TableEntry = {
-      table: {
-        columns: [
-          { name: 'Route ID' },
-          { name: 'Step ID' },
-          { name: 'Step Type' },
-          { name: 'Option Name' },
-          { name: 'Value' },
-        ],
-        rows: [],
-      },
-    };
-    data.push(stepTable);
-
-    stepTable.table.rows = camelResource
-      .getVisualEntities()
+    const visualEntities = camelResource.getVisualEntities();
+    visualEntities
       .filter((entity) => visibleFlows[entity.id])
-      .reduce((acc, entity) => {
-        DocumentationHelper.populateVisualEntity(acc, entity);
-        return acc;
-      }, stepTable.table.rows);
-    return tsMarkdown(data);
-  }
-
-  private static populateVisualEntity(acc: (TableRow | TableCell[])[], entity: BaseVisualCamelEntity) {
-    const vizNode = entity.toVizNode();
-    acc.push({
-      'Route ID': entity.id,
-      'Step ID': '',
-      'Step Type': '',
-      'Option Name': '',
-      Value: '',
-    });
-    DocumentationHelper.populateVizNode(acc, vizNode, entity.id);
-  }
-
-  private static populateVizNode(acc: (TableRow | TableCell[])[], vizNode: IVisualizationNode, routeId: string) {
-    if (!vizNode.data.entity) {
-      const componentSchema = vizNode.getComponentSchema();
-      if (isDataMapperNode(componentSchema?.definition)) {
-        DocumentationHelper.populateDataMapperStep(acc, vizNode);
-      } else if (componentSchema?.definition.uri) {
-        this.populateComponentParameters(acc, vizNode);
-      } else {
-        this.populateProcessorParameters(acc, vizNode);
-      }
-    }
-    vizNode.getChildren()?.forEach((child) => DocumentationHelper.populateVizNode(acc, child, routeId));
-    // branch termination
-    acc.push({
-      'Route ID': '',
-      'Step ID': '',
-      'Step Type': '',
-      'Option Name': '',
-      Value: '',
-    });
-  }
-
-  private static populateDataMapperStep(acc: (TableRow | TableCell[])[], vizNode: IVisualizationNode) {
-    const stepDefinition: Step = vizNode.getComponentSchema()?.definition;
-    const xsltStep = stepDefinition.steps?.find((step) => {
-      if (typeof step.to === 'string') {
-        return step.to.startsWith(XSLT_COMPONENT_NAME);
-      }
-      return step.to?.uri?.startsWith(XSLT_COMPONENT_NAME);
-    });
-    const xsltFileName =
-      typeof xsltStep?.to === 'string'
-        ? xsltStep?.to?.substring(XSLT_COMPONENT_NAME.length + 1)
-        : xsltStep?.to?.uri?.substring(XSLT_COMPONENT_NAME.length + 1);
-
-    acc.push({
-      'Route ID': '',
-      'Step ID': stepDefinition.id,
-      'Step Type': 'Kaoto DataMapper',
-      'Option Name': 'XSLT file name',
-      Value: xsltFileName || '',
-    });
-  }
-
-  private static populateComponentParameters(acc: (TableRow | TableCell[])[], vizNode: IVisualizationNode) {
-    const componentSchema = vizNode.getComponentSchema();
-    if (!componentSchema) {
-      return;
-    }
-
-    const parameters = componentSchema.definition.parameters;
-    if (!parameters || Object.keys(parameters).length === 0) {
-      acc.push({
-        'Route ID': '',
-        'Step ID': componentSchema?.definition.id,
-        'Step Type': vizNode.data.componentName as string,
-        'Option Name': '',
-        Value: '',
+      .forEach((entity) => {
+        const parsedTable = DocumentationHelper.parseVisualEntity(entity);
+        parsedTable && DocumentationHelper.populateParsedEntity(markdown, parsedTable);
       });
-      return;
-    }
-
-    let first = true;
-    Object.entries(componentSchema?.definition.parameters).forEach(([key, value]) => {
-      if (value && typeof value === 'object' && Object.keys(value).length === 0) return;
-      acc.push({
-        'Route ID': '',
-        'Step ID': first ? componentSchema?.definition.id : '',
-        'Step Type': first ? (vizNode.data.componentName as string) : '',
-        'Option Name': key,
-        Value: typeof value === 'string' ? value : JSON.stringify(value),
+    camelResource
+      .getEntities()
+      .filter((entity) => !(visualEntities as BaseCamelEntity[]).includes(entity))
+      .forEach((entity) => {
+        const parsedTable = DocumentationHelper.parseEntity(entity);
+        parsedTable && DocumentationHelper.populateParsedEntity(markdown, parsedTable);
       });
-      first = false;
-    });
+    return tsMarkdown(markdown);
   }
 
-  private static populateProcessorParameters(acc: (TableRow | TableCell[])[], vizNode: IVisualizationNode) {
-    const componentSchema = vizNode.getComponentSchema();
-    if (!componentSchema) {
-      return;
-    }
+  private static populateParsedEntity(markdown: MarkdownEntry[], parsedTable: ParsedTable) {
+    const rows: TableRow[] = parsedTable.data.reduce((acc, rowData) => {
+      const row: TableRow = {};
+      for (let colIndex = 0; colIndex < parsedTable.headers.length; colIndex++) {
+        row[parsedTable.headers[colIndex]] = rowData[colIndex];
+      }
+      acc.push(row);
+      return acc;
+    }, [] as TableRow[]);
 
-    const stepId = componentSchema.definition.id;
-    const filteredDefinition = Object.fromEntries(
-      Object.entries(componentSchema.definition).filter(
-        ([key, _value]) => !DocumentationHelper.excludedProperties.includes(key),
-      ),
+    markdown.push(
+      { h1: parsedTable.title },
+      {
+        table: {
+          columns: parsedTable.headers,
+          rows: rows,
+        },
+      },
+      {},
     );
-
-    if (Object.keys(filteredDefinition).length === 0) {
-      acc.push({
-        'Route ID': '',
-        'Step ID': stepId,
-        'Step Type': vizNode.data.processorName as string,
-        'Option Name': '',
-        Value: '',
-      });
-      return;
-    }
-
-    let first = true;
-    Object.entries(filteredDefinition).forEach(([key, value]) => {
-      if (value && typeof value === 'object') {
-        DocumentationHelper.populateObjectParameter(acc, vizNode, stepId, first, key, value);
-      } else {
-        acc.push({
-          'Route ID': '',
-          'Step ID': first ? stepId : '',
-          'Step Type': first ? (vizNode.data.processorName as string) : '',
-          'Option Name': key,
-          Value: value as string,
-        });
-      }
-      first = false;
-    });
   }
 
-  private static populateObjectParameter(
-    acc: (TableRow | TableCell[])[],
-    vizNode: IVisualizationNode,
-    stepId: string,
-    first: boolean,
-    key: string,
-    value: object,
-  ) {
-    if (Object.keys(value).length === 0) return;
-    if (key === 'expression') {
-      const expressionType = Object.keys(value)[0];
-      acc.push({
-        'Route ID': '',
-        'Step ID': first ? stepId : '',
-        'Step Type': first ? (vizNode.data.processorName as string) : '',
-        'Option Name': `expression(${expressionType})`,
-        /* eslint-disable  @typescript-eslint/no-explicit-any */
-        Value: (value as any)[expressionType].expression,
-      });
-      return;
+  private static parseVisualEntity(entity: BaseVisualCamelEntity): ParsedTable | undefined {
+    if (entity instanceof CamelRestConfigurationVisualEntity) {
+      return RestParser.parseRestConfigurationEntity(entity);
+    } else if (entity instanceof CamelRestVisualEntity) {
+      return RestParser.parseRestEntity(entity);
+    } else if (entity instanceof CamelRouteConfigurationVisualEntity) {
+      return RouteParser.parseRouteConfigurationEntity(entity);
+    } else if (entity instanceof CamelRouteVisualEntity) {
+      return RouteParser.parseRouteEntity(entity);
+    } else if (entity instanceof CamelErrorHandlerVisualEntity) {
+      return RouteParser.parseErrorHandlerEntity(entity);
+    } else if (entity instanceof CamelInterceptVisualEntity) {
+      return RouteParser.parseInterceptEntity(entity);
+    } else if (entity instanceof CamelInterceptFromVisualEntity) {
+      return RouteParser.parseInterceptFromEntity(entity);
+    } else if (entity instanceof CamelInterceptSendToEndpointVisualEntity) {
+      return RouteParser.parseInterceptSendToEntity(entity);
+    } else if (entity instanceof CamelOnCompletionVisualEntity) {
+      return RouteParser.parseOnCompletionEntity(entity);
+    } else if (entity instanceof CamelOnExceptionVisualEntity) {
+      return RouteParser.parseOnExceptionEntity(entity);
     }
-    acc.push({
-      'Route ID': '',
-      'Step ID': first ? stepId : '',
-      'Step Type': first ? (vizNode.data.processorName as string) : '',
-      'Option Name': key,
-      Value: JSON.stringify(value),
-    });
+    return ParsedTable.unsupported(entity);
   }
 
-  static excludedProperties = ['steps', 'when', 'otherwise', 'id'];
-
-  static licenseHeader: string[] = [
-    'Copyright \\(C\\) 2024 Red Hat, Inc.',
-    '',
-    'Licensed under the Apache License, Version 2.0 \\(the "License"\\);',
-    'you may not use this file except in compliance with the License.',
-    'You may obtain a copy of the License at',
-    '',
-    '      http://www.apache.org/licenses/LICENSE-2.0',
-    '',
-    'Unless required by applicable law or agreed to in writing, software',
-    'distributed under the License is distributed on an "AS IS" BASIS,',
-    'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.',
-    'See the License for the specific language governing permissions and',
-    'limitations under the License.',
-  ];
+  private static parseEntity(entity: BaseCamelEntity): ParsedTable | undefined {
+    if (entity instanceof BeansEntity) {
+      BeansParser.parseBeansEntity(entity);
+    } else if (entity instanceof MetadataEntity) {
+      MiscParser.parseMetadataEntity(entity);
+    } else if (entity instanceof PipeErrorHandlerEntity) {
+      MiscParser.parsePipeErrorHandlerEntity(entity);
+    } else if (entity instanceof RouteTemplateBeansEntity) {
+      BeansParser.parseRouteTemplateBeansEntity(entity);
+    }
+    return ParsedTable.unsupported(entity);
+  }
 }
