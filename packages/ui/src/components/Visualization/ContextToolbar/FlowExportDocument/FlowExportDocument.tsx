@@ -85,7 +85,7 @@ export function FlowExportDocument() {
     h5: ({ children }) => <Content component={ContentVariants.h5}>{children}</Content>,
     h6: ({ children }) => <Content component={ContentVariants.h6}>{children}</Content>,
     table: ({ children }) => (
-      <Table borders isStriped isStickyHeader>
+      <Table className="export-document-preview-table" borders isStriped isStickyHeader>
         {children}
       </Table>
     ),

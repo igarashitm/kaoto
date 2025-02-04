@@ -21,7 +21,7 @@ import { BeansParser } from './parsers/beans-parser';
 import { RestParser } from './parsers/rest-parser';
 import { RouteParser } from './parsers/route-parser';
 import { MiscParser } from './parsers/misc-parser';
-import { ParsedTable } from './parsers/parsed-table';
+import { ParsedTable } from './parsers/parsed-model';
 
 export class DocumentationHelper {
   static readonly MD_LICENSE_HEADER: ReadonlyArray<string> = [
@@ -80,20 +80,31 @@ export class DocumentationHelper {
     visualEntities
       .filter((entity) => visibleFlows[entity.id])
       .forEach((entity) => {
-        const parsedTable = DocumentationHelper.parseVisualEntity(entity);
-        parsedTable && DocumentationHelper.populateParsedEntity(markdown, parsedTable);
+        const parsedTables = DocumentationHelper.parseVisualEntity(entity);
+        parsedTables &&
+          (Array.isArray(parsedTables) ? parsedTables : [parsedTables]).forEach((table) =>
+            DocumentationHelper.populateParsedTable(markdown, table),
+          );
       });
     camelResource
       .getEntities()
       .filter((entity) => !(visualEntities as BaseCamelEntity[]).includes(entity))
       .forEach((entity) => {
-        const parsedTable = DocumentationHelper.parseEntity(entity);
-        parsedTable && DocumentationHelper.populateParsedEntity(markdown, parsedTable);
+        const parsedTables = DocumentationHelper.parseEntity(entity);
+        parsedTables &&
+          (Array.isArray(parsedTables) ? parsedTables : [parsedTables]).forEach((table) =>
+            DocumentationHelper.populateParsedTable(markdown, table),
+          );
       });
     return tsMarkdown(markdown);
   }
 
-  private static populateParsedEntity(markdown: MarkdownEntry[], parsedTable: ParsedTable) {
+  private static populateParsedTable(markdown: MarkdownEntry[], parsedTable: ParsedTable) {
+    const title: Record<string, string> = {};
+    title[parsedTable.headingLevel] = parsedTable.title;
+    markdown.push(title);
+    parsedTable.description && markdown.push({ text: parsedTable.description });
+
     const rows: TableRow[] = parsedTable.data.reduce((acc, rowData) => {
       const row: TableRow = {};
       for (let colIndex = 0; colIndex < parsedTable.headers.length; colIndex++) {
@@ -103,19 +114,19 @@ export class DocumentationHelper {
       return acc;
     }, [] as TableRow[]);
 
-    markdown.push(
-      { h1: parsedTable.title },
-      {
-        table: {
-          columns: parsedTable.headers,
-          rows: rows,
+    rows.length > 0 &&
+      markdown.push(
+        {
+          table: {
+            columns: parsedTable.headers,
+            rows: rows,
+          },
         },
-      },
-      {},
-    );
+        {},
+      );
   }
 
-  private static parseVisualEntity(entity: BaseVisualCamelEntity): ParsedTable | undefined {
+  private static parseVisualEntity(entity: BaseVisualCamelEntity): ParsedTable[] | ParsedTable | undefined {
     if (entity instanceof CamelRestConfigurationVisualEntity) {
       return RestParser.parseRestConfigurationEntity(entity);
     } else if (entity instanceof CamelRestVisualEntity) {
@@ -131,7 +142,7 @@ export class DocumentationHelper {
     } else if (entity instanceof CamelInterceptFromVisualEntity) {
       return RouteParser.parseInterceptFromEntity(entity);
     } else if (entity instanceof CamelInterceptSendToEndpointVisualEntity) {
-      return RouteParser.parseInterceptSendToEntity(entity);
+      return RouteParser.parseInterceptSendToEndpointEntity(entity);
     } else if (entity instanceof CamelOnCompletionVisualEntity) {
       return RouteParser.parseOnCompletionEntity(entity);
     } else if (entity instanceof CamelOnExceptionVisualEntity) {
@@ -141,14 +152,12 @@ export class DocumentationHelper {
   }
 
   private static parseEntity(entity: BaseCamelEntity): ParsedTable | undefined {
-    if (entity instanceof BeansEntity) {
-      BeansParser.parseBeansEntity(entity);
+    if (entity instanceof BeansEntity || entity instanceof RouteTemplateBeansEntity) {
+      return BeansParser.parseBeansEntity(entity);
     } else if (entity instanceof MetadataEntity) {
-      MiscParser.parseMetadataEntity(entity);
+      return MiscParser.parseMetadataEntity(entity);
     } else if (entity instanceof PipeErrorHandlerEntity) {
-      MiscParser.parsePipeErrorHandlerEntity(entity);
-    } else if (entity instanceof RouteTemplateBeansEntity) {
-      BeansParser.parseRouteTemplateBeansEntity(entity);
+      return MiscParser.parsePipeErrorHandlerEntity(entity);
     }
     return ParsedTable.unsupported(entity);
   }

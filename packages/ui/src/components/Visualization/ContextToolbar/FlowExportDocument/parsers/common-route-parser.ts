@@ -1,104 +1,135 @@
-import { IVisualizationNode } from '../../../../../models';
-import { ParsedTable } from './parsed-table';
+import { ParsedStep } from './parsed-model';
+import { FromDefinition, ProcessorDefinition, Step } from '@kaoto/camel-catalog/types';
+import { isDataMapperNode, XSLT_COMPONENT_NAME } from '../../../../../utils';
+
+type ComponentDefinition = {
+  id?: string;
+  uri: string;
+  description?: string;
+  parameters?: { [p: string]: unknown };
+};
+
+type AnyProcessorDefinition = {
+  id?: string;
+  description?: string;
+};
 
 export class CommonRouteParser {
-  static readonly HEADERS_STEP_PARAMETER = ['Step ID', 'Step Type', 'Component Name', 'Option Name', 'Value'];
+  static readonly EXCLUDED_COMPONENT_PROPERTIES: ReadonlyArray<string> = [];
   static readonly EXCLUDED_PROCESSOR_PROPERTIES: ReadonlyArray<string> = ['steps', 'when', 'otherwise', 'id'];
+  static readonly EXPRESSION_PARAMETERS: ReadonlyArray<string> = [
+    'expression',
+    'completionPredicate',
+    'completionSizeExpression',
+    'completionTimeoutExpression',
+    'correlationExpression',
+    'onWhen',
+  ];
 
-  static populateComponentParameters(parsedTable: ParsedTable, vizNode: IVisualizationNode) {
-    const componentSchema = vizNode.getComponentSchema();
-    if (!componentSchema) {
-      return;
-    }
+  static parseFrom(fromModel: FromDefinition) {
+    const parsedSteps: ParsedStep[] = [];
+    const parsedFrom = CommonRouteParser.parseComponentStep('from', fromModel);
+    parsedFrom && parsedSteps.push(parsedFrom);
+    const parsedSubSteps = CommonRouteParser.parseSteps(fromModel.steps);
+    parsedSteps.push(...parsedSubSteps);
+    return parsedSteps;
+  }
 
-    const parameters = componentSchema.definition.parameters;
-    if (!parameters || Object.keys(parameters).length === 0) {
-      parsedTable.data.push([
-        componentSchema?.definition.id,
-        vizNode.data.processorName,
-        vizNode.data.componentName as string,
-        '',
-        '',
-      ]);
-      return;
-    }
+  static parseSteps(stepsModel: ProcessorDefinition[]): ParsedStep[] {
+    const parsedSteps: ParsedStep[] = [];
+    stepsModel.forEach((step) => {
+      const [stepType, stepModel] = Object.entries(step)[0];
+      if (stepModel.uri) {
+        const parsedStep = CommonRouteParser.parseComponentStep(stepType, stepModel);
+        parsedSteps.push(parsedStep);
+      } else if (stepType === 'step' && isDataMapperNode(stepModel)) {
+        const parsedStep = CommonRouteParser.parseDataMapperStep(stepModel);
+        parsedSteps.push(parsedStep);
+      } else {
+        const parsedStep = CommonRouteParser.parseProcessorStep(stepType, stepModel);
+        parsedSteps.push(parsedStep);
+        if (stepModel.steps && stepModel.steps.length > 0) {
+          const parsedSubSteps = CommonRouteParser.parseSteps(stepModel.steps);
+          parsedSteps.push(...parsedSubSteps);
+        }
+      }
+    });
+    return parsedSteps;
+  }
 
-    let first = true;
-    Object.entries(componentSchema?.definition.parameters).forEach(([key, value]) => {
-      if (value && typeof value === 'object' && Object.keys(value).length === 0) return;
-      parsedTable.data.push([
-        first ? componentSchema?.definition.id : '',
-        first ? (vizNode.data.processorName as string) : '',
-        first ? (vizNode.data.componentName as string) : '',
-        key,
-        typeof value === 'string' ? value : JSON.stringify(value),
-      ]);
-      first = false;
+  private static parseDataMapperStep(stepDefinition: Step): ParsedStep {
+    const xsltStep = stepDefinition.steps?.find((step) => {
+      if (typeof step.to === 'string') {
+        return step.to.startsWith(XSLT_COMPONENT_NAME);
+      }
+      return step.to?.uri?.startsWith(XSLT_COMPONENT_NAME);
+    });
+    const xsltFileName =
+      typeof xsltStep?.to === 'string'
+        ? xsltStep?.to?.substring(XSLT_COMPONENT_NAME.length + 1)
+        : xsltStep?.to?.uri?.substring(XSLT_COMPONENT_NAME.length + 1);
+
+    return new ParsedStep({
+      id: stepDefinition.id,
+      description: stepDefinition.description,
+      uri: '',
+      name: 'Kaoto DataMapper',
+      parameters: { 'XSLT file name': xsltFileName || '' },
     });
   }
 
-  static populateProcessorParameters(parsedTable: ParsedTable, vizNode: IVisualizationNode) {
-    const componentSchema = vizNode.getComponentSchema();
-    if (!componentSchema) {
-      return;
+  static parseComponentStep(stepType: string, stepModel: ComponentDefinition): ParsedStep {
+    const parsedStep = new ParsedStep({ id: stepModel.id, name: stepType, uri: stepModel.uri });
+    if (stepModel.parameters) {
+      parsedStep.parameters = CommonRouteParser.parseParameters(
+        stepModel.parameters,
+        CommonRouteParser.EXCLUDED_COMPONENT_PROPERTIES,
+      );
     }
+    return parsedStep;
+  }
 
-    const stepId = componentSchema.definition.id;
-    const filteredDefinition = Object.fromEntries(
-      Object.entries(componentSchema.definition).filter(
-        ([key, _value]) => !CommonRouteParser.EXCLUDED_PROCESSOR_PROPERTIES.includes(key),
-      ),
+  static parseProcessorStep(processorType: string, processorModel: AnyProcessorDefinition): ParsedStep {
+    const parsedStep = new ParsedStep({
+      id: processorModel.id,
+      name: processorType,
+      uri: '',
+      description: processorModel.description,
+    });
+    const filteredParameters = Object.fromEntries(
+      Object.entries(processorModel).filter(([key]) => !CommonRouteParser.EXCLUDED_PROCESSOR_PROPERTIES.includes(key)),
     );
 
-    if (Object.keys(filteredDefinition).length === 0) {
-      parsedTable.data.push([stepId, vizNode.data.processorName as string, '', '', '']);
-      return;
-    }
-
-    let first = true;
-    Object.entries(filteredDefinition).forEach(([key, value]) => {
-      if (value && typeof value === 'object') {
-        CommonRouteParser.populateObjectParameter(parsedTable, vizNode, stepId, first, key, value);
-      } else {
-        parsedTable.data.push([
-          first ? stepId : '',
-          first ? (vizNode.data.processorName as string) : '',
-          '',
-          key,
-          value as string,
-        ]);
-      }
-      first = false;
-    });
+    const parsedParameters = CommonRouteParser.parseParameters(
+      filteredParameters,
+      CommonRouteParser.EXCLUDED_PROCESSOR_PROPERTIES,
+    );
+    Object.entries(parsedParameters).forEach(([key, value]) => (parsedStep.parameters[key] = value));
+    return parsedStep;
   }
 
-  private static populateObjectParameter(
-    parsedTable: ParsedTable,
-    vizNode: IVisualizationNode,
-    stepId: string,
-    first: boolean,
-    key: string,
-    value: object,
-  ) {
-    if (Object.keys(value).length === 0) return;
-    if (key === 'expression') {
-      const expressionType = Object.keys(value)[0];
-      parsedTable.data.push([
-        first ? stepId : '',
-        first ? (vizNode.data.processorName as string) : '',
-        '',
-        `expression (${expressionType})`,
-        /* eslint-disable  @typescript-eslint/no-explicit-any */
-        (value as any)[expressionType].expression,
-      ]);
-      return;
-    }
-    parsedTable.data.push([
-      first ? stepId : '',
-      first ? (vizNode.data.processorName as string) : '',
-      '',
-      key,
-      JSON.stringify(value),
-    ]);
+  /* eslint-disable  @typescript-eslint/no-explicit-any */
+  static parseParameters(
+    model: Record<string, any>,
+    excluded: ReadonlyArray<string> = [],
+    prefix?: string,
+  ): Record<string, string> {
+    const answer: Record<string, string> = {};
+    Object.entries(model)
+      .filter(([key]) => !excluded.includes(key))
+      .forEach(([key, value]) => {
+        if (typeof value === 'string') {
+          answer[prefix ? `${prefix}.${key}` : key] = value;
+          return;
+        }
+        if (CommonRouteParser.EXPRESSION_PARAMETERS.includes(key)) {
+          const expressionType = Object.keys(value)[0];
+          answer[`${key} (${expressionType})`] = value[expressionType].expression;
+          return;
+        }
+        const objParams = CommonRouteParser.parseParameters(value, excluded, prefix ? prefix + '.' + key : key);
+        Object.assign(answer, objParams);
+      });
+    return answer;
   }
 }

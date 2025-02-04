@@ -1,6 +1,6 @@
 import { MetadataEntity } from '../../../../../models/visualization/metadata';
 import { PipeErrorHandlerEntity } from '../../../../../models/visualization/metadata/pipeErrorHandlerEntity';
-import { ParsedTable } from './parsed-table';
+import { ParsedTable } from './parsed-model';
 
 export class MiscParser {
   static parseMetadataEntity(entity: MetadataEntity): ParsedTable {
