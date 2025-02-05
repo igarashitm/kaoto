@@ -2,7 +2,7 @@ import { CamelRestConfigurationVisualEntity } from '../../../../../models/visual
 import { CamelRestVisualEntity } from '../../../../../models/visualization/flows/camel-rest-visual-entity';
 import { ParsedTable } from './parsed-model';
 import { Delete, Get, Head, Patch, Post, Put } from '@kaoto/camel-catalog/types';
-import { CommonRouteParser } from './common-route-parser';
+import { CommonParser } from './common-parser';
 
 export class RestParser {
   static readonly HEADERS_REST: ReadonlyArray<string> = ['Method', 'ID', 'Path', 'Route'];
@@ -56,7 +56,7 @@ export class RestParser {
       headers: RestParser.HEADERS_REST_CONFIGURATION,
     });
 
-    const parsedParameters = CommonRouteParser.parseParameters(restConfiguration);
+    const parsedParameters = CommonParser.parseParameters(restConfiguration);
     Object.entries(parsedParameters).forEach(([propKey, propValue]) => parsedTable.data.push([propKey, propValue]));
 
     return parsedTable;

@@ -8,7 +8,7 @@ import {
   OnException,
   ProcessorDefinition,
 } from '@kaoto/camel-catalog/types';
-import { CommonRouteParser } from './common-route-parser';
+import { CommonParser } from './common-parser';
 import { CamelRouteConfigurationVisualEntity } from '../../../../../models/visualization/flows/camel-route-configuration-visual-entity';
 import { CamelErrorHandlerVisualEntity } from '../../../../../models/visualization/flows/camel-error-handler-visual-entity';
 import { CamelInterceptVisualEntity } from '../../../../../models/visualization/flows/camel-intercept-visual-entity';
@@ -25,15 +25,8 @@ type ObjectWithSteps = {
 };
 
 export class RouteParser {
-  static readonly HEADERS_STEP_PARAMETER: ReadonlyArray<string> = [
-    'Step ID',
-    'Step Type',
-    'Component URI',
-    'Parameter Name',
-    'Value',
-  ];
+  static readonly HEADERS_STEP_PARAMETER: ReadonlyArray<string> = ['Step ID', 'Step', 'URI', 'Parameter Name', 'Value'];
   static readonly HEADERS_OBJECT_WITH_STEPS: ReadonlyArray<string> = ['ID', ...RouteParser.HEADERS_STEP_PARAMETER];
-  static readonly HEADERS_ROUTE_CONFIGURATION: ReadonlyArray<string> = [...RouteParser.HEADERS_STEP_PARAMETER];
 
   static parseRouteEntity(entity: CamelRouteVisualEntity): ParsedTable {
     const routeDefinition = entity.entityDef.route;
@@ -43,16 +36,18 @@ export class RouteParser {
       headers: RouteParser.HEADERS_STEP_PARAMETER,
     });
 
-    const routeParameters = CommonRouteParser.parseParameters(routeDefinition, ['from', 'id']);
+    const routeParameters = CommonParser.parseParameters(routeDefinition, ['from', 'id', 'description']);
     Object.entries(routeParameters).forEach(([key, value]) => parameterTable.data.push(['', '', '', key, value]));
 
-    const routeSteps = CommonRouteParser.parseFrom(routeDefinition.from);
+    const routeSteps = CommonParser.parseFrom(routeDefinition.from);
     routeSteps.forEach((step) => {
-      if (!step.parameters || Object.keys(step.parameters).length === 0) {
+      const paramWithDesc = step.description ? { description: step.description } : {};
+      step.parameters && Object.assign(paramWithDesc, step.parameters);
+      if (Object.keys(paramWithDesc).length === 0) {
         parameterTable.data.push([step.id, step.name, step.uri, '', '']);
         return;
       }
-      Object.entries(step.parameters).forEach(([paramKey, paramValue], index) => {
+      Object.entries(paramWithDesc).forEach(([paramKey, paramValue], index) => {
         parameterTable.data.push([
           index === 0 ? step.id : '',
           index === 0 ? step.name : '',
@@ -79,7 +74,7 @@ export class RouteParser {
       title: errorHandlerName,
       headers: ['Parameter Name', 'Parameter Value'],
     });
-    const parameters = CommonRouteParser.parseParameters(errorHandlerObj as Record<string, unknown>);
+    const parameters = CommonParser.parseParameters(errorHandlerObj as Record<string, unknown>);
     Object.entries(parameters).forEach(([propKey, propValue]) => parsedTable.data.push([propKey, propValue]));
     return parsedTable;
   }
@@ -115,21 +110,22 @@ export class RouteParser {
   }
 
   private static populateObjectWithSteps(parsedTable: ParsedTable, model: ObjectWithSteps) {
-    const parsedParams = CommonRouteParser.parseParameters(model, ['id', 'steps']);
+    const parsedParams = CommonParser.parseParameters(model, ['id', 'steps']);
     const objectParamsLength = Object.keys(parsedParams).length;
     objectParamsLength !== 0 &&
       Object.entries(parsedParams).forEach(([paramKey, paramValue], index) =>
         parsedTable.data.push([index === 0 && model.id ? model.id : '', '', '', '', paramKey, paramValue]),
       );
-    const parsedSteps = model.steps && CommonRouteParser.parseSteps(model.steps);
+    const parsedSteps = model.steps && CommonParser.parseSteps(model.steps);
     if (!parsedParams && (!parsedSteps || parsedSteps.length === 0)) {
       parsedTable.data.push([model.id || '', '', '', '', '', '']);
       return;
     }
     parsedSteps &&
       parsedSteps.forEach((step, stepIndex) => {
-        const stepParamsLength = Object.keys(step.parameters).length;
-        if (!step.parameters || stepParamsLength === 0) {
+        const paramsWithDesc = step.description ? { description: step.description } : {};
+        step.parameters && Object.assign(paramsWithDesc, step.parameters);
+        if (Object.keys(paramsWithDesc).length === 0) {
           parsedTable.data.push([
             objectParamsLength === 0 && stepIndex === 0 && model.id ? model.id : '',
             step.id,
@@ -140,12 +136,12 @@ export class RouteParser {
           ]);
           return;
         }
-        Object.entries(step.parameters).forEach(([paramKey, paramValue], paramIndex) =>
+        Object.entries(paramsWithDesc).forEach(([paramKey, paramValue], paramIndex) =>
           parsedTable.data.push([
             objectParamsLength === 0 && stepIndex === 0 && paramIndex === 0 && model.id ? model.id : '',
-            stepIndex === 0 ? step.id : '',
-            stepIndex === 0 ? step.name : '',
-            stepIndex === 0 ? step.uri : '',
+            paramIndex === 0 ? step.id : '',
+            paramIndex === 0 ? step.name : '',
+            paramIndex === 0 ? step.uri : '',
             paramKey,
             paramValue,
           ]),

@@ -1,9 +1,13 @@
-import { BaseVisualCamelEntity, CamelRouteVisualEntity } from '../../../../models';
+import {
+  BaseVisualCamelEntity,
+  CamelRouteVisualEntity,
+  KameletBindingVisualEntity,
+  KameletVisualEntity,
+  PipeVisualEntity,
+} from '../../../../models';
 import { MarkdownEntry, TableRow, tsMarkdown } from 'ts-markdown';
 import JSZip from 'jszip';
 import { toBlob } from 'html-to-image';
-import { CamelResource } from '../../../../models/camel';
-import { IVisibleFlows } from '../../../../models/visualization/flows/support/flows-visibility';
 import { CamelRestVisualEntity } from '../../../../models/visualization/flows/camel-rest-visual-entity';
 import { CamelRestConfigurationVisualEntity } from '../../../../models/visualization/flows/camel-rest-configuration-visual-entity';
 import { CamelRouteConfigurationVisualEntity } from '../../../../models/visualization/flows/camel-route-configuration-visual-entity';
@@ -22,6 +26,8 @@ import { RestParser } from './parsers/rest-parser';
 import { RouteParser } from './parsers/route-parser';
 import { MiscParser } from './parsers/misc-parser';
 import { ParsedTable } from './parsers/parsed-model';
+import { KameletParser } from './parsers/kamelet-parser';
+import { PipeParser } from './parsers/pipe-parser';
 
 export class DocumentationHelper {
   static readonly MD_LICENSE_HEADER: ReadonlyArray<string> = [
@@ -52,7 +58,7 @@ export class DocumentationHelper {
   static generateFlowImage(isDark?: boolean): Promise<Blob | null> {
     const element = document.querySelector<HTMLElement>('.pf-topology-container') ?? undefined;
     if (!element) {
-      return Promise.reject('generateMarkdown called but the flow diagram is not found');
+      return Promise.reject('generateFlowImage called but the flow diagram is not found');
     }
 
     return toBlob(element, {
@@ -67,7 +73,11 @@ export class DocumentationHelper {
     });
   }
 
-  static generateMarkdown(camelResource: CamelResource, visibleFlows: IVisibleFlows, flowImageFileName: string) {
+  static generateMarkdown(
+    visualEntities: BaseVisualCamelEntity[],
+    nonVisualEntities: BaseCamelEntity[],
+    flowImageFileName: string,
+  ) {
     const markdown: MarkdownEntry[] = [
       ' ',
       ...DocumentationHelper.MD_LICENSE_HEADER.map((line) => `[comment]: # (${line})`),
@@ -76,26 +86,20 @@ export class DocumentationHelper {
       { img: { alt: 'Diagram', source: flowImageFileName } },
     ];
 
-    const visualEntities = camelResource.getVisualEntities();
-    visualEntities
-      .filter((entity) => visibleFlows[entity.id])
-      .forEach((entity) => {
-        const parsedTables = DocumentationHelper.parseVisualEntity(entity);
-        parsedTables &&
-          (Array.isArray(parsedTables) ? parsedTables : [parsedTables]).forEach((table) =>
-            DocumentationHelper.populateParsedTable(markdown, table),
-          );
-      });
-    camelResource
-      .getEntities()
-      .filter((entity) => !(visualEntities as BaseCamelEntity[]).includes(entity))
-      .forEach((entity) => {
-        const parsedTables = DocumentationHelper.parseEntity(entity);
-        parsedTables &&
-          (Array.isArray(parsedTables) ? parsedTables : [parsedTables]).forEach((table) =>
-            DocumentationHelper.populateParsedTable(markdown, table),
-          );
-      });
+    visualEntities.forEach((entity) => {
+      const parsedTables = DocumentationHelper.parseVisualEntity(entity);
+      parsedTables &&
+        (Array.isArray(parsedTables) ? parsedTables : [parsedTables]).forEach((table) =>
+          DocumentationHelper.populateParsedTable(markdown, table),
+        );
+    });
+    nonVisualEntities.forEach((entity) => {
+      const parsedTables = DocumentationHelper.parseEntity(entity);
+      parsedTables &&
+        (Array.isArray(parsedTables) ? parsedTables : [parsedTables]).forEach((table) =>
+          DocumentationHelper.populateParsedTable(markdown, table),
+        );
+    });
     return tsMarkdown(markdown);
   }
 
@@ -147,6 +151,12 @@ export class DocumentationHelper {
       return RouteParser.parseOnCompletionEntity(entity);
     } else if (entity instanceof CamelOnExceptionVisualEntity) {
       return RouteParser.parseOnExceptionEntity(entity);
+    } else if (entity instanceof KameletVisualEntity) {
+      return KameletParser.parseKameletEntity(entity);
+    } else if (entity instanceof PipeVisualEntity) {
+      return PipeParser.parsePipeEntity(entity);
+    } else if (entity instanceof KameletBindingVisualEntity) {
+      return PipeParser.parseKameletBindingEntity(entity);
     }
     return ParsedTable.unsupported(entity);
   }

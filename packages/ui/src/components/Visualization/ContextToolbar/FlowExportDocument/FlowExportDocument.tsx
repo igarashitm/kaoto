@@ -1,7 +1,6 @@
 import {
   Button,
-  Content,
-  ContentVariants,
+  Checkbox,
   Form,
   FormGroup,
   ModalBody,
@@ -15,14 +14,18 @@ import { Modal, ModalVariant } from '@patternfly/react-core/deprecated';
 import { DocumentationHelper } from './documentation-helper';
 import { getVisualizationNodesFromGraph } from '../../../../utils';
 import { useVisualizationController } from '@patternfly/react-topology';
-import Markdown, { Components } from 'react-markdown';
+import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Element } from 'hast';
 import { useContext, useState } from 'react';
-import { Table, Tbody, Td, Th, Thead, Tr } from '@patternfly/react-table';
 import { IVisualizationNode } from '../../../../models';
 import './FlowExportDocument.scss';
 import { EntitiesContext, VisibleFlowsContext } from '../../../../providers';
+import { markdownComponentMapping } from './MarkdownComponentMapping';
+import { BaseCamelEntity } from '../../../../models/camel/entities';
+import { BeansEntity, MetadataEntity } from '../../../../models/visualization/metadata';
+import { RouteTemplateBeansEntity } from '../../../../models/visualization/metadata/routeTemplateBeansEntity';
+import { PipeErrorHandlerEntity } from '../../../../models/visualization/metadata/pipeErrorHandlerEntity';
 
 export const defaultTooltipText = 'Export as image';
 
@@ -37,6 +40,14 @@ export function FlowExportDocument() {
   const [flowImageBlob, setFlowImageBlob] = useState<Blob>();
   const [vizNodes, setVizNodes] = useState<IVisualizationNode[]>();
   const [downloadFileName, setDownloadFileName] = useState<string>(fileNameBase + '.zip');
+
+  const visualEntities = camelResource.getVisualEntities();
+  const nonVisualEntities = camelResource
+    .getEntities()
+    .filter((entity) => !(visualEntities as BaseCamelEntity[]).includes(entity));
+  const [nonVisualEntitiesVisibility, setNonVisualEntitiesVisibility] = useState<boolean[]>(
+    nonVisualEntities.map(() => true),
+  );
 
   const onOpenPreview = async () => {
     const vizNodes = getVisualizationNodesFromGraph(controller.getGraph());
@@ -55,7 +66,9 @@ export function FlowExportDocument() {
       return;
     }
 
-    const md = await DocumentationHelper.generateMarkdown(camelResource, visibleFlows, imageUrl);
+    const filteredVisualEntities = visualEntities.filter((entity) => visibleFlows[entity.id]);
+    const filteredNonVisualEntities = nonVisualEntities.filter((_entity, index) => nonVisualEntitiesVisibility[index]);
+    const md = await DocumentationHelper.generateMarkdown(filteredVisualEntities, filteredNonVisualEntities, imageUrl);
     setMarkdownText(md);
     setIsModalOpen(true);
   };
@@ -63,7 +76,13 @@ export function FlowExportDocument() {
   const onDownload = async () => {
     if (!vizNodes || !flowImageBlob) return;
 
-    const md = await DocumentationHelper.generateMarkdown(camelResource, visibleFlows, fileNameBase + '.png');
+    const filteredVisualEntities = visualEntities.filter((entity) => visibleFlows[entity.id]);
+    const filteredNonVisualEntities = nonVisualEntities.filter((_entity, index) => nonVisualEntitiesVisibility[index]);
+    const md = await DocumentationHelper.generateMarkdown(
+      filteredVisualEntities,
+      filteredNonVisualEntities,
+      fileNameBase + '.png',
+    );
 
     const zipBlob = await DocumentationHelper.generateDocumentationZip(flowImageBlob, md, fileNameBase);
     const dataUrl = window.URL.createObjectURL(zipBlob);
@@ -76,32 +95,17 @@ export function FlowExportDocument() {
 
   const imageUrlTransform = (url: string, _key: string, _node: Readonly<Element>): string | null | undefined => url;
 
-  const markdownComponents: Components = {
-    p: ({ children }) => <Content component={ContentVariants.p}>{children}</Content>,
-    h1: ({ children }) => <Content component={ContentVariants.h1}>{children}</Content>,
-    h2: ({ children }) => <Content component={ContentVariants.h2}>{children}</Content>,
-    h3: ({ children }) => <Content component={ContentVariants.h3}>{children}</Content>,
-    h4: ({ children }) => <Content component={ContentVariants.h4}>{children}</Content>,
-    h5: ({ children }) => <Content component={ContentVariants.h5}>{children}</Content>,
-    h6: ({ children }) => <Content component={ContentVariants.h6}>{children}</Content>,
-    table: ({ children }) => (
-      <Table className="export-document-preview-table" borders isStriped isStickyHeader>
-        {children}
-      </Table>
-    ),
-    thead: ({ children }) => <Thead>{children}</Thead>,
-    tbody: ({ children }) => <Tbody>{children}</Tbody>,
-    tr: ({ children }) => <Tr isBorderRow>{children}</Tr>,
-    th: ({ children }) => (
-      <Th hasLeftBorder hasRightBorder>
-        {children}
-      </Th>
-    ),
-    td: ({ children }) => (
-      <Td hasLeftBorder hasRightBorder>
-        {children}
-      </Td>
-    ),
+  const handleCheckboxChange = (checked: boolean, entityIndex: number) => {
+    nonVisualEntitiesVisibility[entityIndex] = checked;
+    setNonVisualEntitiesVisibility([...nonVisualEntitiesVisibility]);
+    onOpenPreview();
+  };
+
+  const getNonVisualEntityLabel = (entity: BaseCamelEntity): string => {
+    if (entity instanceof BeansEntity || entity instanceof RouteTemplateBeansEntity) return 'Beans';
+    if (entity instanceof MetadataEntity) return 'Metadata';
+    if (entity instanceof PipeErrorHandlerEntity) return 'Pipe Error Handler';
+    return entity.constructor.name;
   };
 
   return (
@@ -137,12 +141,26 @@ export function FlowExportDocument() {
                     Download
                   </Button>
                 </FormGroup>
+                <FormGroup label=" "></FormGroup>
+                {nonVisualEntities.length > 0 && (
+                  <FormGroup label="Metadata Visibility" isInline>
+                    {nonVisualEntities.map((entity, index) => (
+                      <Checkbox
+                        id={`checkbox-id-${index}`}
+                        key={`checkbox-key-${index}`}
+                        onChange={(_event, checked) => handleCheckboxChange(checked, index)}
+                        isChecked={nonVisualEntitiesVisibility[index]}
+                        label={getNonVisualEntityLabel(entity)}
+                      />
+                    ))}
+                  </FormGroup>
+                )}
               </ToolbarItem>
             </Toolbar>
           </Form>
         </ModalHeader>
         <ModalBody tabIndex={0} className="export-document-preview-body">
-          <Markdown components={markdownComponents} remarkPlugins={[remarkGfm]} urlTransform={imageUrlTransform}>
+          <Markdown components={markdownComponentMapping} remarkPlugins={[remarkGfm]} urlTransform={imageUrlTransform}>
             {markdownText}
           </Markdown>
         </ModalBody>

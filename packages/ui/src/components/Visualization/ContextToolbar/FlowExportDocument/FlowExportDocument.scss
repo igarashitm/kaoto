@@ -1,10 +1,16 @@
 .export-document-preview-body {
   > h1 {
-    border-bottom: 1px solid var(--pf-t--global--border--color--50);
+    border-bottom: 1px solid var(--pf-t--global--border--color--100);
     margin-bottom: 1rem;
+  }
+  > h2 {
+    border-bottom: 1px solid var(--pf-t--global--border--color--50);
+    margin-bottom: 0.5rem;
   }
 }
 
 .export-document-preview-table {
   border-top: 1px solid var(--pf-t--global--border--color--50);
+  --pf-v6-c-table__thead--cell--FontSize: 1rem
 }
+

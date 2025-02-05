@@ -2,7 +2,7 @@ import { BeansEntity } from '../../../../../models/visualization/metadata';
 import { RouteTemplateBeansEntity } from '../../../../../models/visualization/metadata/routeTemplateBeansEntity';
 import { ParsedTable } from './parsed-model';
 import { BeanFactory, BeansDeserializer } from '@kaoto/camel-catalog/types';
-import { CommonRouteParser } from './common-route-parser';
+import { CommonParser } from './common-parser';
 
 export class BeansParser {
   static readonly HEADERS_BEANS = ['Name', 'Type', 'Property Name', 'Property Value'];
@@ -15,7 +15,7 @@ export class BeansParser {
         parsedTable.data.push([bean.name || '', bean.type || '', '', '']);
         return;
       }
-      const parsedProperties = CommonRouteParser.parseParameters(bean.properties);
+      const parsedProperties = CommonParser.parseParameters(bean.properties);
       Object.entries(parsedProperties).forEach(([propKey, propValue], index) => {
         parsedTable.data.push([
           index === 0 && bean.name ? bean.name : '',
