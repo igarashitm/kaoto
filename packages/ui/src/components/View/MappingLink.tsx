@@ -5,6 +5,7 @@ import { curveMonotoneX } from '@visx/curve';
 import { useMappingLinks } from '../../hooks/useMappingLinks';
 import { LineProps } from '../../models/datamapper';
 import { MappingLinksService } from '../../services/mapping-links.service';
+import { debounce } from 'lodash';
 
 const MappingLink: FunctionComponent<LineProps> = ({
   x1,
@@ -74,11 +75,14 @@ export const MappingLinksContainer: FunctionComponent = () => {
   const { getMappingLinks } = useMappingLinks();
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const refreshLinks = useCallback(() => {
-    const links = getMappingLinks();
-    const answer = MappingLinksService.calculateMappingLinkCoordinates(links, svgRef, getNodeReference);
-    setLineCoordList(answer);
-  }, [getMappingLinks, getNodeReference]);
+  const refreshLinks = useCallback(
+    debounce(() => {
+      const links = getMappingLinks();
+      const answer = MappingLinksService.calculateMappingLinkCoordinates(links, svgRef, getNodeReference);
+      setLineCoordList(answer);
+    }, 500),
+    [getMappingLinks, getNodeReference],
+  );
 
   useEffect(() => {
     refreshLinks();

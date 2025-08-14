@@ -20,6 +20,7 @@ import { SourcePanel } from './SourcePanel';
 import { SourceTargetDnDHandler } from '../../providers/dnd/SourceTargetDnDHandler';
 import { TargetDocument } from '../Document/TargetDocument';
 import { useMappingLinks } from '../../hooks/useMappingLinks';
+import { throttle } from 'lodash';
 
 export const SourceTargetView: FunctionComponent = () => {
   const { targetBodyDocument } = useDataMapper();
@@ -37,7 +38,7 @@ export const SourceTargetView: FunctionComponent = () => {
   }, [setDefaultHandler]);
 
   return (
-    <Split className="source-target-view" onScroll={reloadNodeReferences}>
+    <Split className="source-target-view" onScroll={throttle(reloadNodeReferences, 500)}>
       <SplitItem className="source-target-view__source-split" isFilled>
         <SourcePanel />
       </SplitItem>

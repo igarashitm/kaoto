@@ -51,7 +51,7 @@ export class FieldItem extends MappingItem {
     public field: IField,
   ) {
     const name = field.id;
-    super(parent, name, getCamelRandomId(name, 4));
+    super(parent, name, getCamelRandomId(name, 5));
   }
   doClone() {
     return new FieldItem(this.parent, this.field);
@@ -63,7 +63,7 @@ export abstract class ConditionItem extends MappingItem {
     public parent: MappingParentType,
     public name: string,
   ) {
-    super(parent, name, getCamelRandomId(name, 4));
+    super(parent, name, getCamelRandomId(name, 5));
   }
   readonly isCondition = true;
 }
