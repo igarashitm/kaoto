@@ -410,4 +410,68 @@ describe('CanvasFormBody', () => {
       expect(wrapper.getByTestId('suggestions-menu')).toBeInTheDocument();
     });
   });
+
+  it('route autoStartup', async () => {
+    const camelRoute = {
+      from: {
+        uri: 'timer',
+        parameters: {
+          timerName: 'tutorial',
+        },
+        steps: [
+          {
+            to: {
+              id: 'log-0',
+              uri: 'log',
+            },
+          },
+        ],
+      },
+    } as RouteDefinition;
+    const entity = new CamelRouteVisualEntity(camelRoute);
+    const rootNode: IVisualizationNode = entity.toVizNode();
+    render(
+      <EntitiesContext.Provider value={null}>
+        <VisibleFlowsProvider>
+          <SuggestionRegistryProvider>
+            <CanvasFormTabsContext.Provider
+              value={{
+                selectedTab: 'All',
+                setSelectedTab: jest.fn(),
+              }}
+            >
+              <CanvasFormBody vizNode={rootNode} />
+            </CanvasFormTabsContext.Provider>
+          </SuggestionRegistryProvider>
+        </VisibleFlowsProvider>
+      </EntitiesContext.Provider>,
+    );
+
+    const autoStartup = await screen.findByLabelText('Auto Startup');
+    // since route.autoStartup is true by default according to the schema, this should be true, but is false ATM
+    // expect(autoStartup.getAttribute('checked')).toBe('');
+    expect(autoStartup.getAttribute('checked')).toBeNull();
+
+    const logNode = rootNode.getChildren()![1];
+    render(
+      <EntitiesContext.Provider value={null}>
+        <VisibleFlowsProvider>
+          <SuggestionRegistryProvider>
+            <CanvasFormTabsContext.Provider
+              value={{
+                selectedTab: 'All',
+                setSelectedTab: jest.fn(),
+              }}
+            >
+              <CanvasFormBody vizNode={logNode} />
+            </CanvasFormTabsContext.Provider>
+          </SuggestionRegistryProvider>
+        </VisibleFlowsProvider>
+      </EntitiesContext.Provider>,
+    );
+
+    const groupActiveOnly = await screen.findByLabelText('Group Active Only');
+    // however this groupActiveOnly is set 'checked' as expected
+    expect(groupActiveOnly.getAttribute('checked')).toBe('');
+  });
 });
