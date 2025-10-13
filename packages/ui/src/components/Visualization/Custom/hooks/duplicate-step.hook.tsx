@@ -7,10 +7,14 @@ import { updateIds } from '../../../../utils/update-ids';
 import { cloneDeep } from 'lodash';
 import { EntityType } from '../../../../models/camel/entities';
 import { SourceSchemaType } from '../../../../models/camel/source-schema-type';
+import { NodeInteractionAddonContext } from '../../../registers/interactions/node-interaction-addon.provider';
+import { IInteractionType } from '../../../registers/interactions/node-interaction-addon.model';
+import { processOnDuplicateAddonRecursively } from '../ContextMenu/item-interaction-helper';
 
 export const useDuplicateStep = (vizNode: IVisualizationNode) => {
   const entitiesContext = useContext(EntitiesContext)!;
   const catalogModalContext = useContext(CatalogModalContext);
+  const nodeInteractionAddonContext = useContext(NodeInteractionAddonContext);
   const vizNodeContent = vizNode.getCopiedContent();
   const parentVizNode = vizNode.getParentNode();
 
@@ -52,7 +56,15 @@ export const useDuplicateStep = (vizNode: IVisualizationNode) => {
   const onDuplicate = useCallback(async () => {
     if (!vizNode || !vizNodeContent || !entitiesContext) return;
 
-    const updatedVizNodeContent = updateIds(cloneDeep(vizNodeContent));
+    let updatedVizNodeContent = updateIds(cloneDeep(vizNodeContent));
+
+    /** Process duplicate addons recursively for this node and all its children */
+    updatedVizNodeContent = await processOnDuplicateAddonRecursively(vizNode, updatedVizNodeContent, (vn) =>
+      nodeInteractionAddonContext.getRegisteredInteractionAddons(IInteractionType.ON_DUPLICATE, vn),
+    );
+
+    if (!updatedVizNodeContent) return;
+
     if (vizNodeContent.type === SourceSchemaType.Route && !isDefined(parentVizNode)) {
       entitiesContext.camelResource.addNewEntity(updatedVizNodeContent.name as EntityType, {
         [updatedVizNodeContent.name]: updatedVizNodeContent.definition,
@@ -64,7 +76,7 @@ export const useDuplicateStep = (vizNode: IVisualizationNode) => {
 
     /** Update entity */
     entitiesContext.updateEntitiesFromCamelResource();
-  }, [entitiesContext, parentVizNode, vizNode, vizNodeContent]);
+  }, [entitiesContext, nodeInteractionAddonContext, parentVizNode, vizNode, vizNodeContent]);
 
   const value = useMemo(
     () => ({

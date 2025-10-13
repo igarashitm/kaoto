@@ -6,8 +6,11 @@ import {
   ACTION_ID_DELETE_STEP_ONLY,
   onDeleteDataMapper,
 } from '../DataMapper/on-delete-datamapper';
+import { onPasteDataMapper } from '../DataMapper/on-paste-data-mapper';
+import { onDuplicateDataMapper } from '../DataMapper/on-duplicate-datamapper';
+import { onCopyDataMapper } from '../DataMapper/on-copy-datamapper';
 import { NodeInteractionAddonContext } from './interactions/node-interaction-addon.provider';
-import { IInteractionAddonType, IRegisteredInteractionAddon } from './interactions/node-interaction-addon.model';
+import { IInteractionType, IRegisteredInteractionAddon } from './interactions/node-interaction-addon.model';
 import { ButtonVariant } from '@patternfly/react-core';
 
 export const RegisterNodeInteractionAddons: FunctionComponent<PropsWithChildren> = ({ children }) => {
@@ -15,7 +18,7 @@ export const RegisterNodeInteractionAddons: FunctionComponent<PropsWithChildren>
   const { registerInteractionAddon } = useContext(NodeInteractionAddonContext);
   const addonsToRegister = useRef<IRegisteredInteractionAddon[]>([
     {
-      type: IInteractionAddonType.ON_DELETE,
+      type: IInteractionType.ON_DELETE,
       activationFn: datamapperActivationFn,
       callback: (vizNode, modalAnswer) => {
         metadataApi && onDeleteDataMapper(metadataApi, vizNode, modalAnswer);
@@ -33,6 +36,27 @@ export const RegisterNodeInteractionAddons: FunctionComponent<PropsWithChildren>
             buttonText: 'Delete the step, but keep the file',
           },
         },
+      },
+    },
+    {
+      type: IInteractionType.ON_COPY,
+      activationFn: datamapperActivationFn,
+      callback: (sourceVizNode, content) => {
+        return onCopyDataMapper(sourceVizNode, content);
+      },
+    },
+    {
+      type: IInteractionType.ON_PASTE,
+      activationFn: datamapperActivationFn,
+      callback: async (targetVizNode, originalContent, updatedContent) => {
+        metadataApi && (await onPasteDataMapper(metadataApi, targetVizNode, originalContent, updatedContent));
+      },
+    },
+    {
+      type: IInteractionType.ON_DUPLICATE,
+      activationFn: datamapperActivationFn,
+      callback: async (sourceVizNode, content) => {
+        metadataApi && (await onDuplicateDataMapper(metadataApi, sourceVizNode, content));
       },
     },
   ]);

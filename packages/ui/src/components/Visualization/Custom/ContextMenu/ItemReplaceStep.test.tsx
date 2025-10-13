@@ -2,7 +2,10 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react';
 import { createVisualizationNode, DefinedComponent, IVisualizationNode } from '../../../../models';
 import { CamelRouteResource } from '../../../../models/camel/camel-route-resource';
 import { NodeInteractionAddonContext } from '../../../registers/interactions/node-interaction-addon.provider';
-import { IInteractionAddonType } from '../../../registers/interactions/node-interaction-addon.model';
+import {
+  IInteractionType,
+  IRegisteredInteractionAddon,
+} from '../../../registers/interactions/node-interaction-addon.model';
 import { CatalogModalContext } from '../../../../providers';
 import {
   ACTION_ID_CONFIRM,
@@ -70,9 +73,13 @@ describe('ItemReplaceStep', () => {
     const mockAddon = jest.fn();
     const mockNodeInteractionAddonContext = {
       registerInteractionAddon: jest.fn(),
-      getRegisteredInteractionAddons: (_interaction: IInteractionAddonType, _vizNode: IVisualizationNode) => [
-        { type: IInteractionAddonType.ON_DELETE, activationFn: () => true, callback: mockAddon },
-      ],
+      getRegisteredInteractionAddons: <T extends IInteractionType>(
+        _interaction: T,
+        _vizNode: IVisualizationNode,
+      ): IRegisteredInteractionAddon<T>[] =>
+        [
+          { type: IInteractionType.ON_DELETE, activationFn: () => true, callback: mockAddon },
+        ] as unknown as IRegisteredInteractionAddon<T>[],
     };
     const wrapper = render(
       <EntitiesContext.Provider value={mockEntitiesContext}>

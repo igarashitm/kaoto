@@ -3,14 +3,19 @@ import { AddStepMode, IVisualizationNode } from '../../../../models/visualizatio
 import { EntitiesContext } from '../../../../providers/entities.provider';
 import { ClipboardManager } from '../../../../utils/ClipboardManager';
 import { CatalogModalContext } from '../../../../providers/catalog-modal.provider';
-import { IClipboardCopyObject } from './copy-step.hook';
+import { IClipboardCopyObject } from '../../../../models/visualization/clipboard';
 import { ActionConfirmationModalContext } from '../../../../providers/action-confirmation-modal.provider';
 import { SourceSchemaType } from '../../../../models/camel/source-schema-type';
+import { updateIds } from '../../../../utils/update-ids';
+import { cloneDeep } from 'lodash';
+import { NodeInteractionAddonContext } from '../../../registers/interactions/node-interaction-addon.provider';
+import { IInteractionType } from '../../../registers/interactions/node-interaction-addon.model';
 
 export const usePasteStep = (vizNode: IVisualizationNode, mode: AddStepMode) => {
   const entitiesContext = useContext(EntitiesContext)!;
   const catalogModalContext = useContext(CatalogModalContext);
   const pasteModalContext = useContext(ActionConfirmationModalContext);
+  const nodeInteractionAddonContext = useContext(NodeInteractionAddonContext);
   const [isCompatible, setIsCompatible] = useState(false);
 
   /** validate compatibility of the clipboard node */
@@ -73,11 +78,32 @@ export const usePasteStep = (vizNode: IVisualizationNode, mode: AddStepMode) => 
       return;
     }
 
+    /** Clone and update IDs for the pasted content to avoid conflicts */
+    let updatedPastedNodeValue = updateIds(cloneDeep(pastedNodeValue));
+
+    /**
+     * Get all paste addons (passing undefined for vizNode skips activationFn check).
+     * Paste operations receive both original and updated clipboard content:
+     * - originalContent: preserves original IDs for metadata lookup
+     * - updatedContent: contains new IDs for the pasted steps
+     * Addons must check content type themselves and handle nested content recursively.
+     */
+    const pasteAddons = nodeInteractionAddonContext.getRegisteredInteractionAddons(IInteractionType.ON_PASTE, undefined);
+
+    /** Execute paste addons with both original and updated content */
+    for (const addon of pasteAddons) {
+      const result = await addon.callback(vizNode, pastedNodeValue, updatedPastedNodeValue);
+
+      if (result) {
+        updatedPastedNodeValue = result;
+      }
+    }
+
     /** Paste copied node to the entities */
-    vizNode.pasteBaseEntityStep(pastedNodeValue, mode);
+    vizNode.pasteBaseEntityStep(updatedPastedNodeValue, mode);
     /** Update entity */
     entitiesContext.updateEntitiesFromCamelResource();
-  }, [checkClipboardCompatibility, entitiesContext, mode, pasteModalContext, vizNode]);
+  }, [checkClipboardCompatibility, entitiesContext, mode, nodeInteractionAddonContext, pasteModalContext, vizNode]);
 
   const value = useMemo(
     () => ({

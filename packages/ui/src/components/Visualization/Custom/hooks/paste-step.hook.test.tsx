@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import { IClipboardCopyObject } from './copy-step.hook';
+import { IClipboardCopyObject } from '../../../../models/visualization/clipboard';
 import { AddStepMode, IVisualizationNode } from '../../../../models/visualization/base-visual-entity';
 import { ClipboardManager } from '../../../../utils/ClipboardManager';
 import { SourceSchemaType } from '../../../../models/camel/source-schema-type';
@@ -9,6 +9,11 @@ import { EntitiesContext } from '../../../../providers/entities.provider';
 import { CatalogModalContext } from '../../../../providers/catalog-modal.provider';
 import { CamelRouteResource } from '../../../../models/camel/camel-route-resource';
 import { createVisualizationNode } from '../../../../models/visualization/visualization-node';
+import { NodeInteractionAddonContext } from '../../../registers/interactions/node-interaction-addon.provider';
+import {
+  IInteractionType,
+  IRegisteredInteractionAddon,
+} from '../../../registers/interactions/node-interaction-addon.model';
 
 // Mock the permission API
 Object.assign(navigator, {
@@ -37,6 +42,12 @@ describe('usePasteStep', () => {
     checkCompatibility: jest.fn(),
   };
 
+  // Mock NodeInteractionAddonContext
+  const mockNodeInteractionAddonContext = {
+    registerInteractionAddon: jest.fn(),
+    getRegisteredInteractionAddons: jest.fn(() => []),
+  };
+
   const copiedContent = {
     type: SourceSchemaType.Route,
     name: 'log',
@@ -49,7 +60,11 @@ describe('usePasteStep', () => {
 
   const wrapper: FunctionComponent<PropsWithChildren> = ({ children }) => (
     <EntitiesContext.Provider value={mockEntitiesContext}>
-      <CatalogModalContext.Provider value={mockCatalogModalContext}>{children}</CatalogModalContext.Provider>
+      <CatalogModalContext.Provider value={mockCatalogModalContext}>
+        <NodeInteractionAddonContext.Provider value={mockNodeInteractionAddonContext}>
+          {children}
+        </NodeInteractionAddonContext.Provider>
+      </CatalogModalContext.Provider>
     </EntitiesContext.Provider>
   );
 
@@ -145,5 +160,52 @@ describe('usePasteStep', () => {
     expect(getTypeSpy).toHaveBeenCalledTimes(1);
     expect(mockVizNode.pasteBaseEntityStep as jest.Mock).toHaveBeenCalledTimes(0);
     expect(mockEntitiesContext.updateEntitiesFromCamelResource as jest.Mock).toHaveBeenCalledTimes(0);
+  });
+
+  it('should execute registered paste addons before pasting', async () => {
+    jest.spyOn(navigator.permissions, 'query').mockResolvedValue({ state: 'granted' } as PermissionStatus);
+    const mockAddonCallback = jest.fn().mockResolvedValue(undefined);
+    const mockAddons: IRegisteredInteractionAddon[] = [
+      {
+        type: IInteractionType.ON_PASTE,
+        activationFn: jest.fn(() => true),
+        callback: mockAddonCallback,
+      },
+    ];
+
+    (mockNodeInteractionAddonContext.getRegisteredInteractionAddons as jest.Mock).mockReturnValue(mockAddons);
+
+    const mockVizNode = {
+      getComponentSchema: jest.fn(),
+      pasteBaseEntityStep: jest.fn(),
+    } as unknown as IVisualizationNode;
+
+    // Mock the ClipboardManager.paste() to return a valid content
+    jest
+      .spyOn(ClipboardManager, 'paste')
+      .mockImplementation(async () => Promise.resolve(copiedContent as IClipboardCopyObject));
+    // Mock the compatibility check to return true
+    jest.spyOn(mockCatalogModalContext, 'checkCompatibility').mockReturnValue(true);
+
+    const { result } = renderHook(() => usePasteStep(mockVizNode, AddStepMode.AppendStep), { wrapper });
+    await waitFor(() => {
+      expect(result.current.isCompatible).toBe(true);
+    });
+
+    await result.current.onPasteStep();
+
+    // Verify paste addons were retrieved (with undefined vizNode for paste operations)
+    expect(mockNodeInteractionAddonContext.getRegisteredInteractionAddons).toHaveBeenCalledWith(
+      IInteractionType.ON_PASTE,
+      undefined,
+    );
+
+    // Verify addon callback was executed with both original and updated content
+    expect(mockAddonCallback).toHaveBeenCalledTimes(1);
+    expect(mockAddonCallback).toHaveBeenCalledWith(mockVizNode, expect.any(Object), expect.any(Object));
+
+    // Verify normal paste flow continued
+    expect(mockVizNode.pasteBaseEntityStep as jest.Mock).toHaveBeenCalledTimes(1);
+    expect(mockEntitiesContext.updateEntitiesFromCamelResource as jest.Mock).toHaveBeenCalledTimes(1);
   });
 });

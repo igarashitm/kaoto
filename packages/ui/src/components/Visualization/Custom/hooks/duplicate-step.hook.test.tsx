@@ -9,6 +9,11 @@ import { CamelRouteResource } from '../../../../models/camel/camel-route-resourc
 import { useDuplicateStep } from './duplicate-step.hook';
 import { CatalogModalContext } from '../../../../providers/catalog-modal.provider';
 import { updateIds } from '../../../../utils/update-ids';
+import { NodeInteractionAddonContext } from '../../../registers/interactions/node-interaction-addon.provider';
+import {
+  IInteractionType,
+  IRegisteredInteractionAddon,
+} from '../../../registers/interactions/node-interaction-addon.model';
 
 // Mock the `updateIds` function
 jest.mock('../../../../utils/update-ids', () => ({
@@ -59,9 +64,19 @@ describe('useDuplicateStep', () => {
     checkCompatibility: jest.fn(),
   };
 
+  // Mock NodeInteractionAddonContext
+  const mockNodeInteractionAddonContext = {
+    registerInteractionAddon: jest.fn(),
+    getRegisteredInteractionAddons: jest.fn(() => []),
+  };
+
   const wrapper: FunctionComponent<PropsWithChildren> = ({ children }) => (
     <EntitiesContext.Provider value={mockEntitiesContext}>
-      <CatalogModalContext.Provider value={mockCatalogModalContext}>{children}</CatalogModalContext.Provider>
+      <CatalogModalContext.Provider value={mockCatalogModalContext}>
+        <NodeInteractionAddonContext.Provider value={mockNodeInteractionAddonContext}>
+          {children}
+        </NodeInteractionAddonContext.Provider>
+      </CatalogModalContext.Provider>
     </EntitiesContext.Provider>
   );
 
@@ -112,23 +127,23 @@ describe('useDuplicateStep', () => {
   });
 
   describe('onDuplicate functionality', () => {
-    it('should return without calling pasteBaseEntityStep() and updateEntitiesFromCamelResource()', () => {
+    it('should return without calling pasteBaseEntityStep() and updateEntitiesFromCamelResource()', async () => {
       const VizNodeGetCopiedContentSpy = jest.spyOn(vizNode, 'getCopiedContent').mockReturnValueOnce(undefined);
       const VizNodePasteBaseEntityStepSpy = jest.spyOn(vizNode, 'pasteBaseEntityStep');
 
       const { result } = renderHook(() => useDuplicateStep(vizNode), { wrapper });
-      result.current.onDuplicate();
+      await result.current.onDuplicate();
 
       expect(VizNodeGetCopiedContentSpy).toHaveBeenCalledTimes(1);
       expect(VizNodePasteBaseEntityStepSpy).not.toHaveBeenCalled();
       expect(mockEntitiesContext.updateEntitiesFromCamelResource as jest.Mock).not.toHaveBeenCalled();
     });
 
-    it('should call pasteBaseEntityStep() and finally updateEntitiesFromCamelResource()', () => {
+    it('should call pasteBaseEntityStep() and finally updateEntitiesFromCamelResource()', async () => {
       const VizNodePasteBaseEntityStepSpy = jest.spyOn(vizNode, 'pasteBaseEntityStep');
 
       const { result } = renderHook(() => useDuplicateStep(vizNode), { wrapper });
-      result.current.onDuplicate();
+      await result.current.onDuplicate();
 
       expect(VizNodePasteBaseEntityStepSpy).toHaveBeenCalledTimes(1);
       expect(VizNodePasteBaseEntityStepSpy).toHaveBeenCalledWith(
@@ -138,16 +153,48 @@ describe('useDuplicateStep', () => {
       expect(mockEntitiesContext.updateEntitiesFromCamelResource as jest.Mock).toHaveBeenCalledTimes(1);
     });
 
-    it('should call entitiesContext.camelResource.addNewEntity() and finally updateEntitiesFromCamelResource()', () => {
+    it('should call entitiesContext.camelResource.addNewEntity() and finally updateEntitiesFromCamelResource()', async () => {
       const camelResourceAddNewEntitySpy = jest.spyOn(camelResource, 'addNewEntity');
       const routeVizNodeContent = updateIds(routeVizNode.getCopiedContent()!);
       const { result } = renderHook(() => useDuplicateStep(routeVizNode), { wrapper });
-      result.current.onDuplicate();
+      await result.current.onDuplicate();
 
       expect(camelResourceAddNewEntitySpy).toHaveBeenCalledTimes(1);
       expect(camelResourceAddNewEntitySpy).toHaveBeenCalledWith(routeVizNodeContent.name as string, {
         [routeVizNodeContent.name]: routeVizNodeContent.definition,
       });
+      expect(mockEntitiesContext.updateEntitiesFromCamelResource as jest.Mock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should execute registered duplicate addons before pasting', async () => {
+      const mockAddonCallback = jest.fn().mockResolvedValue(undefined);
+      const mockAddons: IRegisteredInteractionAddon[] = [
+        {
+          type: IInteractionType.ON_DUPLICATE,
+          activationFn: jest.fn(() => true),
+          callback: mockAddonCallback,
+        },
+      ];
+
+      (mockNodeInteractionAddonContext.getRegisteredInteractionAddons as jest.Mock).mockReturnValue(mockAddons);
+
+      const VizNodePasteBaseEntityStepSpy = jest.spyOn(vizNode, 'pasteBaseEntityStep');
+
+      const { result } = renderHook(() => useDuplicateStep(vizNode), { wrapper });
+      await result.current.onDuplicate();
+
+      // Verify duplicate addons were retrieved
+      expect(mockNodeInteractionAddonContext.getRegisteredInteractionAddons).toHaveBeenCalledWith(
+        IInteractionType.ON_DUPLICATE,
+        vizNode,
+      );
+
+      // Verify addon callback was executed with the content object
+      expect(mockAddonCallback).toHaveBeenCalledTimes(1);
+      expect(mockAddonCallback).toHaveBeenCalledWith(vizNode, expect.any(Object));
+
+      // Verify normal paste flow continued
+      expect(VizNodePasteBaseEntityStepSpy).toHaveBeenCalledTimes(1);
       expect(mockEntitiesContext.updateEntitiesFromCamelResource as jest.Mock).toHaveBeenCalledTimes(1);
     });
   });
