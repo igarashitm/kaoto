@@ -60,6 +60,9 @@ export const conditionalMappingsToShipOrderXslt = fs
 export const shipOrderToShipOrderInvalidForEachXslt = fs
   .readFileSync(path.resolve(__dirname, './xml/ShipOrderToShipOrderInvalidForEach.xsl'))
   .toString();
+export const shipOrderWithCompletelyEmptyForEachXslt = fs
+  .readFileSync(path.resolve(__dirname, './xml/ShipOrderWithCompletelyEmptyForEach.xsl'))
+  .toString();
 export const shipOrderEmptyFirstLineXsd = fs
   .readFileSync(path.resolve(__dirname, './xml/ShipOrderEmptyFirstLine.xsd'))
   .toString();

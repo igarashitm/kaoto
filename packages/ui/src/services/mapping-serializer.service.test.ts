@@ -15,6 +15,7 @@ import { Types } from '../models/datamapper/types';
 import {
   shipOrderToShipOrderXslt,
   shipOrderToShipOrderInvalidForEachXslt,
+  shipOrderWithCompletelyEmptyForEachXslt,
   TestUtil,
   x12850ForEachXslt,
   invoice850Xsd,
@@ -247,6 +248,33 @@ describe('MappingSerializerService', () => {
       const item2 = mappingTree.children[0].children[1] as FieldItem;
       expect(item2.children.length).toEqual(4);
       expect(item1.id).not.toEqual(item2.id);
+    });
+
+    it('should deserialize XSLT with completely empty for-each', () => {
+      let mappingTree = new MappingTree(DocumentType.TARGET_BODY, BODY_DOCUMENT_ID, DocumentDefinitionType.XML_SCHEMA);
+      mappingTree = MappingSerializerService.deserialize(
+        shipOrderWithCompletelyEmptyForEachXslt,
+        targetDoc,
+        mappingTree,
+        sourceParameterMap,
+      );
+      expect(mappingTree.children.length).toEqual(1);
+      const shipOrderFieldItem = mappingTree.children[0] as FieldItem;
+      expect(shipOrderFieldItem.field.name).toEqual('ShipOrder');
+      expect(shipOrderFieldItem.children.length).toEqual(3);
+
+      const orderIdFieldItem = shipOrderFieldItem.children[0] as FieldItem;
+      expect(orderIdFieldItem.field.name).toEqual('OrderId');
+
+      const forEachItem1 = shipOrderFieldItem.children[1] as ForEachItem;
+      expect(forEachItem1).toBeInstanceOf(ForEachItem);
+      expect(forEachItem1.expression).toEqual('/ns0:ShipOrder/Item');
+      expect(forEachItem1.children.length).toEqual(1);
+
+      const forEachItem2 = shipOrderFieldItem.children[2] as ForEachItem;
+      expect(forEachItem2).toBeInstanceOf(ForEachItem);
+      expect(forEachItem2.expression).toEqual('');
+      expect(forEachItem2.children.length).toEqual(0);
     });
   });
 
