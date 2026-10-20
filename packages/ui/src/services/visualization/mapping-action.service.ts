@@ -359,9 +359,10 @@ export class MappingActionService {
       const item = MappingActionService.getOrCreateFieldItem(targetNode);
       const hadExistingContent = MappingActionService.hasMappingContent(item);
       MappingActionService.removeParentContainerCopyOf(item);
+      const unwrapped = MappingService.unwrapStaleOptionalGuard(item);
       MappingService.mapToField(sourceField, item);
       const wrapped = MappingService.tryAutoOptionalIfWrap(item, sourceField, hadExistingContent);
-      return targetWasUnmapped || !!wrapped;
+      return targetWasUnmapped || !!wrapped || unwrapped;
     } else if (targetNode instanceof MappingNodeData) {
       MappingService.mapToCondition(targetNode.mapping, sourceField);
       return false;
@@ -676,10 +677,17 @@ export class MappingActionService {
     return MappingService.createFieldItem(parentItem, fieldNodeData.field);
   }
 
+  /**
+   * Drops the enclosing container's wholesale copy-of once one of its children is mapped
+   * explicitly, since otherwise the output both copies the subtree and emits the child.
+   *
+   * Walks to the owning container rather than reading `item.parent`: after an auto-optional wrap
+   * the immediate parent is the guard, and scanning its children finds nothing.
+   */
   private static removeParentContainerCopyOf(item: MappingItem): void {
-    const parent = item.parent;
-    if (!(parent instanceof MappingItem)) return;
-    parent.children = parent.children.filter(
+    const container = MappingService.findEnclosingFieldItem(item, 'instructions');
+    if (!(container instanceof FieldItem)) return;
+    container.children = container.children.filter(
       (c) => !(c instanceof CopyOfSelector && c.valueType === CopyOfType.CONTAINER),
     );
   }
