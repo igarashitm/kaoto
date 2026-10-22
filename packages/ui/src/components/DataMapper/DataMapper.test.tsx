@@ -9,6 +9,8 @@ import { DocumentDefinitionType } from '../../models/datamapper/document';
 import { IDataMapperMetadata } from '../../models/datamapper/metadata';
 import { EntitiesContext, IMetadataApi, MetadataProvider } from '../../providers';
 import { DataMapperMetadataService } from '../../services/datamapper-metadata.service';
+import { DataMapperOutputValidationService } from '../../services/datamapper-output-validation.service';
+import { DataMapperStepService } from '../../services/datamapper-step.service';
 import { DataMapperValidationStepService } from '../../services/datamapper-validation-step.service';
 import { EMPTY_XSL } from '../../services/mapping/mapping-serializer.service';
 import { createMockEntitiesContext } from '../../stubs/create-mock-entities-context';
@@ -304,8 +306,8 @@ describe('DataMapperPage', () => {
 
     it('should read initial validation state via isValidationEnabled and pass to DataMapperProvider', async () => {
       vi.spyOn(DataMapperValidationStepService, 'isValidationEnabled').mockReturnValue(false);
-      vi.spyOn(DataMapperValidationStepService, 'addValidationStep').mockImplementation(() => undefined);
-      vi.spyOn(DataMapperValidationStepService, 'removeValidationStep').mockImplementation(() => undefined);
+      vi.spyOn(DataMapperValidationStepService, 'addValidationStep').mockImplementation(() => {});
+      vi.spyOn(DataMapperValidationStepService, 'removeValidationStep').mockImplementation(() => {});
 
       fileContents[metadata.xsltPath] = EMPTY_XSL;
 
@@ -318,6 +320,85 @@ describe('DataMapperPage', () => {
       await screen.findByTestId('source-parameters-header');
 
       expect(DataMapperValidationStepService.isValidationEnabled).toHaveBeenCalledWith(vizNodeWithSteps);
+    });
+  });
+
+  describe('Output validation toggle in the settings modal', () => {
+    beforeEach(() => {
+      vi.restoreAllMocks();
+      metadata = {
+        ...defaultMetadata,
+        targetBody: { type: DocumentDefinitionType.XML_SCHEMA, filePath: ['ShipOrder.xsd'] },
+      };
+      fileContents = { 'ShipOrder.xsd': getShipOrderXsd(), [metadata.xsltPath]: EMPTY_XSL };
+    });
+
+    const renderAndOpenSettings = async (dataMapperSteps: ProcessorDefinition[]) => {
+      const setUp = await setUpDataMapperStep(dataMapperSteps);
+      renderWithVirtuoso(
+        <EntitiesContext.Provider value={setUp.entitiesContext}>
+          <MetadataProvider api={api}>
+            <DataMapper vizNode={setUp.dataMapperVizNode} />
+          </MetadataProvider>
+        </EntitiesContext.Provider>,
+      );
+      await screen.findByTestId('source-parameters-header');
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId('datamapper-settings-button'));
+      return { ...setUp, user };
+    };
+
+    it('should add the validator pointing to the target schema when the toggle is switched on', async () => {
+      const addSpy = vi.spyOn(DataMapperValidationStepService, 'addValidationStep');
+
+      const { user, dataMapperVizNode, entitiesContext } = await renderAndOpenSettings([xsltStep]);
+      await user.click(await screen.findByTestId('validate-output-settings-checkbox'));
+      await user.click(screen.getByTestId('datamapper-settings-save-btn'));
+
+      await waitFor(() => {
+        expect(addSpy).toHaveBeenCalledWith(
+          dataMapperVizNode,
+          expect.objectContaining({ filePath: ['ShipOrder.xsd'] }),
+          entitiesContext,
+          'ShipOrder.xsd',
+        );
+      });
+    });
+
+    it('should remove the validator when the toggle is switched off', async () => {
+      const removeSpy = vi.spyOn(DataMapperValidationStepService, 'removeValidationStep');
+      const validatorStep: ProcessorDefinition = { to: { uri: 'validator:ShipOrder.xsd' } };
+
+      const { user, dataMapperVizNode, entitiesContext } = await renderAndOpenSettings([xsltStep, validatorStep]);
+      await user.click(await screen.findByTestId('validate-output-settings-checkbox'));
+      await user.click(screen.getByTestId('datamapper-settings-save-btn'));
+
+      await waitFor(() => {
+        expect(removeSpy).toHaveBeenCalledWith(dataMapperVizNode, entitiesContext);
+      });
+    });
+
+    it('should keep the other settings and report the real model state when the toggle fails', async () => {
+      const toggleError = new Error('boom');
+      vi.spyOn(DataMapperOutputValidationService, 'setOutputValidation').mockRejectedValue(toggleError);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { user, dataMapperVizNode } = await renderAndOpenSettings([xsltStep]);
+      await user.type(await screen.findByTestId('output-variable-name-input'), 'myVar');
+      await user.click(screen.getByTestId('validate-output-settings-checkbox'));
+      await user.click(screen.getByTestId('datamapper-settings-save-btn'));
+
+      await waitFor(() => {
+        expect(warnSpy).toHaveBeenCalledWith('[DataMapper] Failed to toggle output validation:', toggleError);
+      });
+      // The model really has no validator, and the settings are not rolled back by the provider.
+      if (!dataMapperVizNode) throw new Error('The DataMapper step was not found');
+      expect(DataMapperValidationStepService.isValidationEnabled(dataMapperVizNode)).toBe(false);
+      expect(DataMapperStepService.getOutputVariable(dataMapperVizNode)).toBe('myVar');
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        '[DataMapperProvider] Failed to update the step settings:',
+        expect.anything(),
+      );
     });
   });
 
