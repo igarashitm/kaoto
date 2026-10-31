@@ -1,7 +1,6 @@
 import { DocumentDefinitionType } from '../../models/datamapper/document';
 import {
   ChooseItem,
-  CopyOfSelector,
   FieldItem,
   ForEachGroupItem,
   ForEachItem,
@@ -9,13 +8,11 @@ import {
   MappingItem,
   OtherwiseItem,
   UnknownMappingItem,
-  ValueOfSelector,
   ValueSelector,
   WhenItem,
 } from '../../models/datamapper/mapping';
 import {
   IMappingAction,
-  IMappingActionSourceContext,
   IMappingContextMenuAction,
   MappingActionGroup,
   MappingActionKind,
@@ -24,6 +21,7 @@ import {
   AddMappingNodeData,
   FieldItemNodeData,
   ForEachCapableNodeData,
+  ISourceDocumentContext,
   MappingNodeData,
   TargetDocumentNodeData,
   TargetNodeData,
@@ -35,7 +33,7 @@ import { MappingService } from '../mapping/mapping.service';
 import { WrapperAutoDetectionService } from '../mapping/wrapper-auto-detection.service';
 import { FieldCandidateService } from './field-candidate.service';
 import { MappingActionService } from './mapping-action.service';
-import { MappingLinksService } from './mapping-links.service';
+import { TargetRenderService } from './target-render.service';
 import { VisualizationUtilService } from './visualization-util.service';
 
 /**
@@ -475,31 +473,10 @@ export class MappingActionRegistryService {
         if (!(n instanceof FieldItemNodeData)) return true;
         const selector = WrapperAutoDetectionService.getHiddenGuardSelector(n.mapping);
         if (!selector || !sourceContext) return true;
-        return !MappingActionRegistryService.isSourceFieldOptional(selector, sourceContext);
+        return !TargetRenderService.isOptionalSourceSelector(selector, sourceContext);
       },
     },
   ];
-
-  /**
-   * Resolves `selector`'s XPath expression back to a source field and checks whether it's
-   * optional, via the same {@link WrapperAutoDetectionService.isOptionalSourceField} rule
-   * drag-and-drop enforces directly on the source `IField` (through
-   * {@link WrapperAutoDetectionService.decideOptionalGuard}), so the two eligibility checks
-   * cannot disagree on what counts as optional. An expression that doesn't resolve to exactly
-   * one source field is conservatively treated as not-optional (can't confirm it).
-   */
-  private static isSourceFieldOptional(
-    selector: ValueOfSelector | CopyOfSelector,
-    sourceContext: IMappingActionSourceContext,
-  ): boolean {
-    const resolved = MappingLinksService.resolveSourceFields(
-      selector,
-      sourceContext.sourceParameterMap,
-      sourceContext.sourceBody,
-    );
-    if (resolved.length !== 1) return false;
-    return WrapperAutoDetectionService.isOptionalSourceField(resolved[0].field);
-  }
 
   /**
    * Returns the set of {@link MappingActionKind} values permitted for the given
@@ -509,7 +486,7 @@ export class MappingActionRegistryService {
    * @param nodeData - The target node whose capabilities are evaluated.
    * @returns An array of allowed action identifiers for this node.
    */
-  static getAllowedActions(nodeData: TargetNodeData, sourceContext?: IMappingActionSourceContext): MappingActionKind[] {
+  static getAllowedActions(nodeData: TargetNodeData, sourceContext?: ISourceDocumentContext): MappingActionKind[] {
     return MappingActionRegistryService.ACTION_REGISTRY.filter((def) => def.isAllowed(nodeData, sourceContext)).map(
       (def) => def.key,
     );
@@ -524,7 +501,7 @@ export class MappingActionRegistryService {
    */
   static getMappingContextMenuItems(
     nodeData: TargetNodeData,
-    sourceContext?: IMappingActionSourceContext,
+    sourceContext?: ISourceDocumentContext,
   ): IMappingContextMenuAction[] {
     return MappingActionRegistryService.ACTION_REGISTRY.filter(
       (def): def is IMappingContextMenuAction =>
