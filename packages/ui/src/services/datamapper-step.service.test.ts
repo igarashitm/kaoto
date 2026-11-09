@@ -363,7 +363,7 @@ describe('DataMapperStepService', () => {
     });
   });
 
-  describe('updateXsltFileName', () => {
+  describe('applyResourceRenamesToNode: XSLT file name', () => {
     let vizNode: IVisualizationNode;
 
     beforeEach(() => {
@@ -377,95 +377,78 @@ describe('DataMapperStepService', () => {
       });
     });
 
+    const uriOf = (step: ProcessorDefinition): string | undefined =>
+      step.to && typeof step.to === 'object' && 'uri' in step.to ? step.to.uri : undefined;
+
     it('should update XSLT filename in the URI', () => {
       const model = {
         id: 'step-id',
-        steps: [
-          {
-            to: {
-              uri: `${XSLT_COMPONENT_NAME}:old-file.xsl`,
-            },
-          } as ProcessorDefinition,
-        ],
+        steps: [{ to: { uri: `${XSLT_COMPONENT_NAME}:old-file.xsl` } } as ProcessorDefinition],
       };
 
       vizNode.data.definition = model;
       const updateModelSpy = vi.spyOn(vizNode, 'updateModel');
 
-      DataMapperStepService.updateXsltFileName(vizNode, 'new-file.xsl', mockEntitiesContext);
+      DataMapperStepService.applyResourceRenamesToNode(
+        vizNode,
+        { 'old-file.xsl': 'new-file.xsl' },
+        mockEntitiesContext,
+      );
 
       expect(updateModelSpy).toHaveBeenCalledWith(model);
       expect(mockEntitiesContext.updateSourceCodeFromEntities).toHaveBeenCalled();
-      const step = model.steps[0];
-      if (step.to && typeof step.to === 'object' && 'uri' in step.to) {
-        expect(step.to.uri).toBe(`${XSLT_COMPONENT_NAME}:new-file.xsl`);
-      }
+      expect(uriOf(model.steps[0])).toBe(`${XSLT_COMPONENT_NAME}:new-file.xsl`);
     });
 
     it('should handle filename with different extension', () => {
       const model = {
         id: 'step-id',
-        steps: [
-          {
-            to: {
-              uri: `${XSLT_COMPONENT_NAME}:transform.xsl`,
-            },
-          } as ProcessorDefinition,
-        ],
+        steps: [{ to: { uri: `${XSLT_COMPONENT_NAME}:transform.xsl` } } as ProcessorDefinition],
       };
 
       vizNode.data.definition = model;
-      const updateModelSpy = vi.spyOn(vizNode, 'updateModel');
 
-      DataMapperStepService.updateXsltFileName(vizNode, 'transform.xslt', mockEntitiesContext);
+      DataMapperStepService.applyResourceRenamesToNode(
+        vizNode,
+        { 'transform.xsl': 'transform.xslt' },
+        mockEntitiesContext,
+      );
 
-      expect(updateModelSpy).toHaveBeenCalledWith(model);
-      const step = model.steps[0];
-      if (step.to && typeof step.to === 'object' && 'uri' in step.to) {
-        expect(step.to.uri).toBe(`${XSLT_COMPONENT_NAME}:transform.xslt`);
-      }
+      expect(uriOf(model.steps[0])).toBe(`${XSLT_COMPONENT_NAME}:transform.xslt`);
     });
 
-    it('should not update when XSLT step is not found', () => {
+    it('should leave the URI alone when XSLT step is not found', () => {
       const model = {
         id: 'step-id',
-        steps: [
-          {
-            to: {
-              uri: 'direct:test',
-            },
-          } as ProcessorDefinition,
-        ],
+        steps: [{ to: { uri: 'direct:test' } } as ProcessorDefinition],
       };
 
       vizNode.data.definition = model;
-      const updateModelSpy = vi.spyOn(vizNode, 'updateModel');
 
-      DataMapperStepService.updateXsltFileName(vizNode, 'new-file.xsl', mockEntitiesContext);
+      DataMapperStepService.applyResourceRenamesToNode(
+        vizNode,
+        { 'old-file.xsl': 'new-file.xsl' },
+        mockEntitiesContext,
+      );
 
-      expect(updateModelSpy).not.toHaveBeenCalled();
-      expect(mockEntitiesContext.updateSourceCodeFromEntities).not.toHaveBeenCalled();
+      expect(uriOf(model.steps[0])).toBe('direct:test');
     });
 
-    it('should not update when to property is missing', () => {
+    it('should leave the step alone when to property is missing', () => {
       const model = {
         id: 'step-id',
-        steps: [
-          {
-            from: {
-              uri: 'direct:test',
-            },
-          } as ProcessorDefinition,
-        ],
+        steps: [{ from: { uri: 'direct:test' } } as ProcessorDefinition],
       };
 
       vizNode.data.definition = model;
-      const updateModelSpy = vi.spyOn(vizNode, 'updateModel');
 
-      DataMapperStepService.updateXsltFileName(vizNode, 'new-file.xsl', mockEntitiesContext);
+      DataMapperStepService.applyResourceRenamesToNode(
+        vizNode,
+        { 'old-file.xsl': 'new-file.xsl' },
+        mockEntitiesContext,
+      );
 
-      expect(updateModelSpy).not.toHaveBeenCalled();
-      expect(mockEntitiesContext.updateSourceCodeFromEntities).not.toHaveBeenCalled();
+      expect(model.steps[0].to).toBeUndefined();
     });
   });
 

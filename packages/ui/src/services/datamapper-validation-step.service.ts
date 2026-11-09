@@ -1,4 +1,4 @@
-import { Step } from '@kaoto/camel-catalog/types';
+import { ProcessorDefinition, Step } from '@kaoto/camel-catalog/types';
 
 import { getCamelRandomId } from '../camel-utils/camel-random-id';
 import { IVisualizationNode } from '../models';
@@ -39,14 +39,18 @@ import { XmlSchemaWrapperGeneratorService } from './document/xml-schema/xml-sche
  * - Detecting whether validation is currently enabled
  */
 export class DataMapperValidationStepService {
+  /** A step is a validation step when it is either the XML or the JSON validator component. */
+  private static isAnyValidatorComponent(step: ProcessorDefinition): step is ValidatorComponentDef {
+    return isValidatorComponent(step) || isJsonValidatorComponent(step);
+  }
+
   /**
    * Gets the validation step from a DataMapper step group definition, if present.
    * @param definition The step group definition (the `definition` of the DataMapper visualization node)
    * @returns The validator step definition, or `undefined` if none exists
    */
   static getValidationStepFromDefinition(definition: Step | undefined): ValidatorComponentDef | undefined {
-    const steps = definition?.steps;
-    return steps?.find((s): s is ValidatorComponentDef => isValidatorComponent(s) || isJsonValidatorComponent(s));
+    return definition?.steps?.find(DataMapperValidationStepService.isAnyValidatorComponent);
   }
 
   /**
@@ -131,7 +135,7 @@ export class DataMapperValidationStepService {
   static removeValidationStep(vizNode: IVisualizationNode, entitiesContext: EntitiesContextResult): void {
     const model = vizNode.data?.definition as Step | undefined;
     const steps = model?.steps;
-    const index = steps?.findIndex((s) => isValidatorComponent(s) || isJsonValidatorComponent(s));
+    const index = steps?.findIndex(DataMapperValidationStepService.isAnyValidatorComponent);
     if (!model || !steps || index === undefined || index < 0) {
       return;
     }
@@ -264,7 +268,7 @@ export class DataMapperValidationStepService {
     const wrapperPath = XmlSchemaWrapperGeneratorService.getWrapperPath(xsltPath);
     const index = steps.findIndex(
       (step) =>
-        (isValidatorComponent(step) || isJsonValidatorComponent(step)) &&
+        DataMapperValidationStepService.isAnyValidatorComponent(step) &&
         DataMapperValidationStepService.parseValidatorUri(step.to.uri).resource === wrapperPath,
     );
     if (index < 0) {

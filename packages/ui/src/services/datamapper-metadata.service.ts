@@ -403,15 +403,20 @@ export class DataMapperMetadataService {
   ): Promise<string | undefined> {
     try {
       const wrapperPath = XmlSchemaWrapperGeneratorService.getWrapperPath(xsltPath);
-      // Never overwrite a user file that happens to have one of the generated names.
-      for (const path of [wrapperPath, ...Object.keys(aggregators)]) {
-        if (!(await DataMapperMetadataService.isUserFile(api, path))) continue;
+      // Never overwrite a user file that happens to have one of the generated names. The wrapper is classified
+      // once: that same read also tells which aggregators the previous wrapper used.
+      const existing = await DataMapperMetadataService.classifyFile(api, wrapperPath);
+      if (existing.kind === 'user') {
+        return `"${wrapperPath}" is not a generated file and must not be overwritten`;
+      }
+      for (const path of Object.keys(aggregators)) {
+        if ((await DataMapperMetadataService.classifyFile(api, path)).kind !== 'user') continue;
         return `"${path}" is not a generated file and must not be overwritten`;
       }
-      const previous = await DataMapperMetadataService.readGeneratedFile(api, wrapperPath);
-      const previousAggregators = previous
-        ? XmlSchemaWrapperGeneratorService.findAggregatorPaths(wrapperPath, previous)
-        : [];
+      const previousAggregators =
+        existing.kind === 'generated'
+          ? XmlSchemaWrapperGeneratorService.findAggregatorPaths(wrapperPath, existing.content)
+          : [];
       await Promise.all(Object.entries(aggregators).map(([path, content]) => api.saveResourceContent(path, content)));
       await api.saveResourceContent(wrapperPath, xsd);
       await Promise.all(
@@ -469,7 +474,7 @@ export class DataMapperMetadataService {
       }
 
       for (const target of Object.keys(contents)) {
-        if (await DataMapperMetadataService.isUserFile(api, target)) {
+        if ((await DataMapperMetadataService.classifyFile(api, target)).kind === 'user') {
           return { renames: {}, failure: `"${target}" is not a generated file and must not be overwritten` };
         }
       }
@@ -599,24 +604,39 @@ export class DataMapperMetadataService {
   }
 
   /**
+   * Classifies a path in one pass, so callers do not probe the same file twice.
+   *
+   * `missing` covers a path with no file and a file that is empty or unreadable; `generated` is a file carrying the
+   * Kaoto generated marker, which the DataMapper owns and may overwrite or delete; `user` is anything else and must
+   * be left alone.
+   *
+   * @param api The metadata API
+   * @param path The path to classify
+   * @returns The kind of file, with its content when it is a generated one
+   */
+  private static async classifyFile(
+    api: IMetadataApi,
+    path: string,
+  ): Promise<{ kind: 'missing' | 'user' } | { kind: 'generated'; content: string }> {
+    if (!(await api.isResourceExist(path))) return { kind: 'missing' };
+    const content = await api.getResourceContent(path);
+    if (!content) return { kind: 'missing' };
+    return XmlSchemaWrapperGeneratorService.isGeneratedWrapper(content)
+      ? { kind: 'generated', content }
+      : { kind: 'user' };
+  }
+
+  /**
    * Reads a file only when it exists and Kaoto generated it.
    * @returns The content, `undefined` for a missing file or a user file
    */
   private static async readGeneratedFile(api: IMetadataApi, path: string): Promise<string | undefined> {
-    if (!(await api.isResourceExist(path))) return undefined;
-    const content = await api.getResourceContent(path);
-    return content && XmlSchemaWrapperGeneratorService.isGeneratedWrapper(content) ? content : undefined;
-  }
-
-  /** @returns true when a file exists at the path and Kaoto did not generate it */
-  private static async isUserFile(api: IMetadataApi, path: string): Promise<boolean> {
-    if (!(await api.isResourceExist(path))) return false;
-    const content = await api.getResourceContent(path);
-    return !!content && !XmlSchemaWrapperGeneratorService.isGeneratedWrapper(content);
+    const file = await DataMapperMetadataService.classifyFile(api, path);
+    return file.kind === 'generated' ? file.content : undefined;
   }
 
   private static async deleteGeneratedFile(api: IMetadataApi, path: string): Promise<void> {
-    if ((await DataMapperMetadataService.readGeneratedFile(api, path)) !== undefined) {
+    if ((await DataMapperMetadataService.classifyFile(api, path)).kind === 'generated') {
       await api.deleteResource(path);
     }
   }

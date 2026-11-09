@@ -220,23 +220,7 @@ export class DataMapperStepService {
     return typeof id === 'string' && id.startsWith(DataMapperStepService.OUTPUT_VARIABLE_STEP_ID_PREFIX);
   }
 
-  static updateXsltFileName(
-    vizNode: IVisualizationNode,
-    newFileName: string,
-    entitiesContext: EntitiesContextResult,
-  ): void {
-    const model = vizNode.data?.definition as Record<string, unknown>;
-    const xsltStep = (model.steps as ProcessorDefinition[]).find(isXSLTComponent);
-
-    if (!xsltStep?.to || typeof xsltStep.to !== 'object') {
-      return;
-    }
-
-    xsltStep.to.uri = `${XSLT_COMPONENT_NAME}:${newFileName}`;
-    vizNode.updateModel(model);
-    entitiesContext.updateSourceCodeFromEntities();
-  }
-
+  /** Points the XSLT step of a step group at another file. Does nothing when there is no XSLT step. */
   private static setXsltFileName(definition: Step, fileName: string): void {
     const xsltStep = definition.steps?.find(isXSLTComponent);
     if (xsltStep?.to && typeof xsltStep.to === 'object') {

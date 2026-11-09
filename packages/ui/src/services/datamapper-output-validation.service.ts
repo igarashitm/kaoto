@@ -145,7 +145,6 @@ export class DataMapperOutputValidationService {
     enabled: boolean,
     entitiesContext: EntitiesContextResult,
   ): Promise<string[]> {
-    const warnings: string[] = [];
     const metadataId = DataMapperStepService.getDataMapperMetadataId(vizNode);
     const metadata = await api.getMetadata<IDataMapperMetadata>(metadataId);
 
@@ -154,11 +153,12 @@ export class DataMapperOutputValidationService {
       if (metadata?.xsltPath) {
         await DataMapperMetadataService.deleteValidationWrapper(api, metadata.xsltPath);
       }
-      return warnings;
+      return [];
     }
 
-    if (!metadata || !DataMapperValidationStepService.canAddValidationStep(vizNode)) return warnings;
+    if (!metadata || !DataMapperValidationStepService.canAddValidationStep(vizNode)) return [];
 
+    const warnings: string[] = [];
     const { targetBody, xsltPath } = metadata;
     const definitionFiles = DataMapperOutputValidationService.requiresWrapperResolution(targetBody)
       ? ((await DataMapperMetadataService.loadTargetBodyDefinition(api, metadata)).definitionFiles ?? {})
