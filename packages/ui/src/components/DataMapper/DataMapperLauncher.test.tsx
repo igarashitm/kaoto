@@ -674,7 +674,89 @@ describe('DataMapperLauncher', () => {
         expect(removeValidationStepSpy).not.toHaveBeenCalled();
       });
 
-      it('should revert the checkbox and not throw when enabling the validation is rejected', async () => {
+      it('should render the checkbox disabled until the async checks are done', async () => {
+        let resolveExists: (exists: boolean) => void = () => {};
+        mockMetadataContext.isResourceExist = vi.fn().mockReturnValue(
+          new Promise<boolean>((resolve) => {
+            resolveExists = resolve;
+          }),
+        );
+        const vizNode = createMockVizNode('test-document.xsl');
+        getXsltFileNameSpy.mockReturnValue('test-document.xsl');
+
+        render(<DataMapperLauncher vizNode={vizNode} />, { wrapper });
+
+        expect(screen.getByTestId('validate-output-checkbox')).toBeDisabled();
+
+        resolveExists(true);
+        await waitFor(() => {
+          expect(screen.getByTestId('validate-output-checkbox')).toBeEnabled();
+        });
+      });
+
+      it('should remove the disabled checkbox when the checks find a Primitive target', async () => {
+        mockMetadataContext.getMetadata = vi.fn().mockResolvedValue({
+          sourceBody: { type: DocumentDefinitionType.Primitive, filePath: [] },
+          sourceParameters: {},
+          targetBody: { type: DocumentDefinitionType.Primitive, filePath: [] },
+          xsltPath: 'test-document.xsl',
+        } as IDataMapperMetadata);
+        const vizNode = createMockVizNode('test-document.xsl');
+        getXsltFileNameSpy.mockReturnValue('test-document.xsl');
+
+        render(<DataMapperLauncher vizNode={vizNode} />, { wrapper });
+
+        await waitFor(() => {
+          expect(screen.queryByTestId('validate-output-checkbox')).not.toBeInTheDocument();
+        });
+      });
+
+      it('should show the warnings of the validation setup under the checkbox', async () => {
+        vi.spyOn(DataMapperOutputValidationService, 'setOutputValidation').mockResolvedValue([
+          'No unreferenced schema found, validating against "a.xsd" only',
+        ]);
+        const vizNode = createMockVizNode('test-document.xsl');
+        getXsltFileNameSpy.mockReturnValue('test-document.xsl');
+
+        render(<DataMapperLauncher vizNode={vizNode} />, { wrapper });
+
+        expect(screen.queryByTestId('validate-output-helper-text')).not.toBeInTheDocument();
+        const checkbox = await screen.findByTestId('validate-output-checkbox');
+        await waitFor(() => expect(checkbox).toBeEnabled());
+        fireEvent.click(checkbox);
+
+        const helperText = await screen.findByTestId('validate-output-helper-text');
+        expect(helperText).toHaveTextContent('No unreferenced schema found, validating against "a.xsd" only');
+      });
+
+      it('should not bring back old warnings when the group is shown again', async () => {
+        vi.spyOn(DataMapperOutputValidationService, 'setOutputValidation').mockResolvedValue(['old warning']);
+        const vizNode = createMockVizNode('test-document.xsl');
+        getXsltFileNameSpy.mockReturnValue('test-document.xsl');
+
+        const { rerender } = render(<DataMapperLauncher vizNode={vizNode} />, { wrapper });
+        const checkbox = await screen.findByTestId('validate-output-checkbox');
+        await waitFor(() => expect(checkbox).toBeEnabled());
+        fireEvent.click(checkbox);
+        expect(await screen.findByText('old warning')).toBeInTheDocument();
+
+        // The XSLT file goes away, so the group is hidden ...
+        mockMetadataContext.isResourceExist = vi.fn().mockResolvedValue(false);
+        getXsltFileNameSpy.mockReturnValue('other.xsl');
+        rerender(<DataMapperLauncher vizNode={createMockVizNode('other.xsl')} />);
+        await waitFor(() => {
+          expect(screen.queryByTestId('validate-output-checkbox')).not.toBeInTheDocument();
+        });
+
+        // ... and comes back with a file: no message of the earlier toggle.
+        mockMetadataContext.isResourceExist = vi.fn().mockResolvedValue(true);
+        getXsltFileNameSpy.mockReturnValue('third.xsl');
+        rerender(<DataMapperLauncher vizNode={createMockVizNode('third.xsl')} />);
+        await screen.findByTestId('validate-output-checkbox');
+        expect(screen.queryByText('old warning')).not.toBeInTheDocument();
+      });
+
+      it('should revert the checkbox, tell the user and not throw when enabling the validation is rejected', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         vi.spyOn(DataMapperOutputValidationService, 'setOutputValidation').mockRejectedValue(new Error('no access'));
         const vizNode = createMockVizNode('test-document.xsl');
@@ -685,6 +767,7 @@ describe('DataMapperLauncher', () => {
         render(<DataMapperLauncher vizNode={vizNode} />, { wrapper });
 
         const checkbox = (await screen.findByTestId('validate-output-checkbox')) as HTMLInputElement;
+        await waitFor(() => expect(checkbox).toBeEnabled());
         fireEvent.click(checkbox);
 
         await waitFor(() => {
@@ -694,6 +777,9 @@ describe('DataMapperLauncher', () => {
           expect(checkbox).toBeEnabled();
         });
         expect(checkbox.checked).toBe(false);
+        expect(await screen.findByTestId('validate-output-helper-text')).toHaveTextContent(
+          'Could not enable output validation',
+        );
       });
 
       it('should call removeValidationStep when checkbox is toggled OFF', async () => {

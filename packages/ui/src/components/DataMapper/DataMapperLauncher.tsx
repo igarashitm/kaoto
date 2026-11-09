@@ -58,7 +58,12 @@ const DataMapperLauncherContent: FunctionComponent<{ vizNode?: IVisualizationNod
   const [isSavingFile, setIsSavingFile] = useState<boolean>(false);
   const [isValidationEnabled, setIsValidationEnabled] = useState<boolean>(false);
   const [isValidationTogglePending, setIsValidationTogglePending] = useState<boolean>(false);
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+  const [validationError, setValidationError] = useState<string | undefined>(undefined);
   const [isTargetPrimitive, setIsTargetPrimitive] = useState<boolean>(true);
+  // The async checks decide whether the Output Validation group is shown. Until they are done it is rendered
+  // disabled, so the fields below do not jump when the group appears.
+  const [isChecking, setIsChecking] = useState<boolean>(true);
   // useState lazy initializer: getOutputVariable is called once at mount, not on every render.
   const [outputVariableName, setOutputVariableName] = useState<string>(
     () => (vizNode ? DataMapperStepService.getOutputVariable(vizNode) : undefined) ?? '',
@@ -80,14 +85,21 @@ const DataMapperLauncherContent: FunctionComponent<{ vizNode?: IVisualizationNod
 
   useEffect(() => {
     let cancelled = false;
+    // Messages of an earlier toggle must not come back when the Output Validation group is shown again.
+    const clearValidationMessages = () => {
+      setValidationWarnings([]);
+      setValidationError(undefined);
+    };
     const checkFile = async () => {
       if (!xsltDocumentName || !metadata) {
         setXsltFileExists(false);
+        clearValidationMessages();
         return;
       }
       const exists = await metadata.isResourceExist(xsltDocumentName);
       if (cancelled) return;
       setXsltFileExists(exists);
+      if (!exists) clearValidationMessages();
 
       if (vizNode) {
         setIsValidationEnabled(DataMapperValidationStepService.isValidationEnabled(vizNode));
@@ -95,13 +107,20 @@ const DataMapperLauncherContent: FunctionComponent<{ vizNode?: IVisualizationNod
         const isPrimitive = await DataMapperMetadataService.isTargetBodyPrimitive(metadata, metadataId);
         if (cancelled) return;
         setIsTargetPrimitive(isPrimitive);
+        if (isPrimitive) clearValidationMessages();
       }
     };
-    checkFile().catch(() => {});
+    checkFile()
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsChecking(false);
+      });
     return () => {
       cancelled = true;
     };
   }, [xsltDocumentName, metadata, vizNode]);
+
+  const isValidationGroupShown = isXsltDocumentDefined && (isChecking || (xsltFileExists && !isTargetPrimitive));
 
   const validateDocumentName = useCallback(
     async (value: string): Promise<ValidationResult> => {
@@ -157,10 +176,19 @@ const DataMapperLauncherContent: FunctionComponent<{ vizNode?: IVisualizationNod
     async (_event: ChangeEvent<HTMLInputElement>, { checked }: { checked: boolean }) => {
       if (!vizNode || !entitiesContext || !metadata) return;
       setIsValidationTogglePending(true);
+      setValidationError(undefined);
       try {
-        await DataMapperOutputValidationService.setOutputValidation(metadata, vizNode, checked, entitiesContext);
+        const warnings = await DataMapperOutputValidationService.setOutputValidation(
+          metadata,
+          vizNode,
+          checked,
+          entitiesContext,
+        );
+        setValidationWarnings(warnings);
       } catch (err) {
         console.warn('[DataMapperLauncher] Failed to toggle output validation:', err);
+        setValidationWarnings([]);
+        setValidationError(`Could not ${checked ? 'enable' : 'disable'} output validation, see the log for details.`);
       } finally {
         setIsValidationEnabled(DataMapperValidationStepService.isValidationEnabled(vizNode));
         setIsValidationTogglePending(false);
@@ -243,16 +271,41 @@ const DataMapperLauncherContent: FunctionComponent<{ vizNode?: IVisualizationNod
           />
         </FieldWrapper>
       )}
-      {xsltFileExists && !isTargetPrimitive && (
+      {isValidationGroupShown && (
         <FormGroup legendText="Output Validation">
           <Checkbox
             id="validate-output"
             labelText="Validate output"
             checked={isValidationEnabled}
-            disabled={isValidationTogglePending}
+            disabled={isChecking || isValidationTogglePending}
             onChange={handleValidationToggle}
             data-testid="validate-output-checkbox"
           />
+          {validationError ? (
+            <InlineNotification
+              data-testid="validate-output-helper-text"
+              kind="error"
+              lowContrast
+              hideCloseButton
+              title=""
+              subtitle={validationError}
+            />
+          ) : (
+            validationWarnings.length > 0 && (
+              <div data-testid="validate-output-helper-text">
+                {validationWarnings.map((warning) => (
+                  <InlineNotification
+                    key={warning}
+                    kind="warning"
+                    lowContrast
+                    hideCloseButton
+                    title=""
+                    subtitle={warning}
+                  />
+                ))}
+              </div>
+            )
+          )}
         </FormGroup>
       )}
       <OutputVariableField

@@ -40,6 +40,7 @@ export class DataMapperOutputValidationService {
    * @param targetMetadata The target body metadata
    * @param xsltPath The path of the XSLT file the wrapper belongs to
    * @param definitionFiles The loaded content of the target schema files. Unreadable or empty files are missing.
+   * @param reportedWarnings Optional list the problems are also appended to, so the caller can show them to the user
    * @returns The resource URI for the validator, empty when there is nothing to validate against
    */
   static async resolveValidationResource(
@@ -47,6 +48,7 @@ export class DataMapperOutputValidationService {
     targetMetadata: IDocumentMetadata,
     xsltPath: string,
     definitionFiles: Record<string, string>,
+    reportedWarnings?: string[],
   ): Promise<string> {
     const defaultUri = targetMetadata.filePath?.[0] ?? '';
 
@@ -74,6 +76,7 @@ export class DataMapperOutputValidationService {
 
     if (warnings.length > 0) {
       console.warn(`[Output validation] ${warnings.join(' | ')}`);
+      reportedWarnings?.push(...warnings);
     }
     return uri;
   }
@@ -133,13 +136,16 @@ export class DataMapperOutputValidationService {
    * @param vizNode The DataMapper step
    * @param enabled Whether the validator step should exist afterwards
    * @param entitiesContext The entities context
+   * @returns The problems found while resolving the schema to validate against (e.g. validating against a part of
+   *          the schema files only), empty when there are none
    */
   static async setOutputValidation(
     api: IMetadataApi,
     vizNode: IVisualizationNode,
     enabled: boolean,
     entitiesContext: EntitiesContextResult,
-  ): Promise<void> {
+  ): Promise<string[]> {
+    const warnings: string[] = [];
     const metadataId = DataMapperStepService.getDataMapperMetadataId(vizNode);
     const metadata = await api.getMetadata<IDataMapperMetadata>(metadataId);
 
@@ -148,10 +154,10 @@ export class DataMapperOutputValidationService {
       if (metadata?.xsltPath) {
         await DataMapperMetadataService.deleteValidationWrapper(api, metadata.xsltPath);
       }
-      return;
+      return warnings;
     }
 
-    if (!metadata || !DataMapperValidationStepService.canAddValidationStep(vizNode)) return;
+    if (!metadata || !DataMapperValidationStepService.canAddValidationStep(vizNode)) return warnings;
 
     const { targetBody, xsltPath } = metadata;
     const definitionFiles = DataMapperOutputValidationService.requiresWrapperResolution(targetBody)
@@ -162,9 +168,11 @@ export class DataMapperOutputValidationService {
       targetBody,
       xsltPath,
       definitionFiles,
+      warnings,
     );
 
     DataMapperValidationStepService.addValidationStep(vizNode, targetBody, entitiesContext, resourceUri);
+    return warnings;
   }
 
   /**

@@ -143,6 +143,22 @@ describe('DataMapperOutputValidationService', () => {
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('B.xsd'));
     });
 
+    it('should also append the problems to the list given by the caller', async () => {
+      api.saveResourceContent.mockRejectedValue(new Error('read only'));
+      const reported: string[] = [];
+
+      await resolveValidationResource(
+        api as unknown as IMetadataApi,
+        { type: DocumentDefinitionType.XML_SCHEMA, filePath: ['A.xsd', 'B.xsd'] },
+        XSLT_PATH,
+        twoUnconnected,
+        reported,
+      );
+
+      expect(reported).toHaveLength(1);
+      expect(reported[0]).toContain('read only');
+    });
+
     it('should return the file path for a JSON schema', async () => {
       const uri = await resolveValidationResource(
         api as unknown as IMetadataApi,
@@ -190,6 +206,27 @@ describe('DataMapperOutputValidationService', () => {
         WRAPPER_PATH,
       );
       expect(files[WRAPPER_PATH]).toBeDefined();
+    });
+
+    it('should return the problems found while resolving the schema', async () => {
+      api.getMetadata.mockResolvedValue(metadata(['A.xsd', 'B.xsd']));
+      api.saveResourceContent.mockRejectedValue(new Error('read only'));
+      files = { ...twoUnconnected };
+      vi.spyOn(DataMapperValidationStepService, 'addValidationStep').mockImplementation(() => {});
+
+      const warnings = await setOutputValidation(api as unknown as IMetadataApi, vizNode, true, entitiesContext);
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('read only');
+    });
+
+    it('should return no problems when there is nothing to report', async () => {
+      api.getMetadata.mockResolvedValue(metadata(['A.xsd']));
+      vi.spyOn(DataMapperValidationStepService, 'addValidationStep').mockImplementation(() => {});
+
+      const warnings = await setOutputValidation(api as unknown as IMetadataApi, vizNode, true, entitiesContext);
+
+      expect(warnings).toEqual([]);
     });
 
     it('should do nothing without metadata when enabling', async () => {
