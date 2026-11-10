@@ -277,13 +277,12 @@ describe('DataMapperOutputValidationService', () => {
       vi.spyOn(DataMapperValidationStepService, 'isValidationEnabled').mockReturnValue(true);
       const updateSpy = vi.spyOn(DataMapperValidationStepService, 'updateValidationStep').mockImplementation(() => {});
 
-      await syncOutputValidationOnTargetChange(
+      const result = await syncOutputValidationOnTargetChange(
         api as unknown as IMetadataApi,
         vizNode,
         entitiesContext,
         xmlMetadata(['A.xsd', 'B.xsd']),
         xmlDefinition(twoUnconnected),
-        DocumentDefinitionType.XML_SCHEMA,
       );
 
       expect(updateSpy).toHaveBeenCalledWith(
@@ -293,6 +292,7 @@ describe('DataMapperOutputValidationService', () => {
         WRAPPER_PATH,
       );
       expect(files[WRAPPER_PATH]).toBeDefined();
+      expect(result).toBe(true);
     });
 
     it('should delete a stale wrapper when going from several files to one', async () => {
@@ -306,7 +306,6 @@ describe('DataMapperOutputValidationService', () => {
         entitiesContext,
         xmlMetadata(['A.xsd']),
         xmlDefinition({ 'A.xsd': schema('urn:a', 'A') }),
-        DocumentDefinitionType.XML_SCHEMA,
       );
 
       expect(updateSpy).toHaveBeenCalledWith(
@@ -320,10 +319,11 @@ describe('DataMapperOutputValidationService', () => {
 
     it('should remove the step through updateValidationStep and delete the wrapper for a Primitive target', async () => {
       files[WRAPPER_PATH] = `${GENERATED_WRAPPER_MARKER}. ${GENERATED_WRAPPER_NOTICE}`;
-      vi.spyOn(DataMapperValidationStepService, 'isValidationEnabled').mockReturnValue(true);
+      // Enabled going in (so the sync does not bail out early), removed by the time `updateValidationStep` is done.
+      vi.spyOn(DataMapperValidationStepService, 'isValidationEnabled').mockReturnValueOnce(true).mockReturnValue(false);
       const updateSpy = vi.spyOn(DataMapperValidationStepService, 'updateValidationStep').mockImplementation(() => {});
 
-      await syncOutputValidationOnTargetChange(
+      const result = await syncOutputValidationOnTargetChange(
         api as unknown as IMetadataApi,
         vizNode,
         entitiesContext,
@@ -332,7 +332,6 @@ describe('DataMapperOutputValidationService', () => {
           targetBody: { type: DocumentDefinitionType.Primitive, filePath: [] },
         } as unknown as IDataMapperMetadata,
         { definitionType: DocumentDefinitionType.Primitive, filePath: [] } as unknown as DocumentDefinition,
-        DocumentDefinitionType.XML_SCHEMA,
       );
 
       expect(updateSpy).toHaveBeenCalledWith(
@@ -341,30 +340,10 @@ describe('DataMapperOutputValidationService', () => {
         entitiesContext,
       );
       expect(files[WRAPPER_PATH]).toBeUndefined();
+      expect(result).toBe(false);
     });
 
-    it('should auto-add the validator when the target goes from Primitive to a schema', async () => {
-      vi.spyOn(DataMapperValidationStepService, 'isValidationEnabled').mockReturnValue(false);
-      const addSpy = vi.spyOn(DataMapperValidationStepService, 'addValidationStep').mockImplementation(() => {});
-
-      await syncOutputValidationOnTargetChange(
-        api as unknown as IMetadataApi,
-        vizNode,
-        entitiesContext,
-        xmlMetadata(['A.xsd']),
-        xmlDefinition({ 'A.xsd': schema('urn:a', 'A') }),
-        DocumentDefinitionType.Primitive,
-      );
-
-      expect(addSpy).toHaveBeenCalledWith(
-        vizNode,
-        expect.objectContaining({ filePath: ['A.xsd'] }),
-        entitiesContext,
-        'A.xsd',
-      );
-    });
-
-    it('should keep validation disabled when the user disabled it on a schema target', async () => {
+    it('should never enable validation automatically, whatever the target changes to', async () => {
       vi.spyOn(DataMapperValidationStepService, 'isValidationEnabled').mockReturnValue(false);
       const addSpy = vi.spyOn(DataMapperValidationStepService, 'addValidationStep').mockImplementation(() => {});
       const updateSpy = vi.spyOn(DataMapperValidationStepService, 'updateValidationStep').mockImplementation(() => {});
@@ -375,30 +354,11 @@ describe('DataMapperOutputValidationService', () => {
         entitiesContext,
         xmlMetadata(['A.xsd']),
         xmlDefinition({ 'A.xsd': schema('urn:a', 'A') }),
-        DocumentDefinitionType.XML_SCHEMA,
       );
 
       expect(addSpy).not.toHaveBeenCalled();
       expect(updateSpy).not.toHaveBeenCalled();
       expect(result).toBe(false);
-    });
-
-    it('should return the validation state read after the sync', async () => {
-      vi.spyOn(DataMapperValidationStepService, 'isValidationEnabled')
-        .mockReturnValueOnce(false)
-        .mockReturnValueOnce(true);
-      vi.spyOn(DataMapperValidationStepService, 'addValidationStep').mockImplementation(() => {});
-
-      const result = await syncOutputValidationOnTargetChange(
-        api as unknown as IMetadataApi,
-        vizNode,
-        entitiesContext,
-        xmlMetadata(['A.xsd']),
-        xmlDefinition({ 'A.xsd': schema('urn:a', 'A') }),
-        undefined,
-      );
-
-      expect(result).toBe(true);
     });
   });
 
@@ -428,14 +388,10 @@ describe('DataMapperOutputValidationService', () => {
         targetBody: { type: DocumentDefinitionType.XML_SCHEMA, filePath: Object.keys(definitionFiles) },
       } as IDataMapperMetadata;
 
-      await syncOutputValidationOnTargetChange(
-        api as unknown as IMetadataApi,
-        vizNode,
-        entitiesContext,
-        metadata,
-        { definitionType: DocumentDefinitionType.XML_SCHEMA, definitionFiles } as unknown as DocumentDefinition,
-        DocumentDefinitionType.Primitive,
-      );
+      await syncOutputValidationOnTargetChange(api as unknown as IMetadataApi, vizNode, entitiesContext, metadata, {
+        definitionType: DocumentDefinitionType.XML_SCHEMA,
+        definitionFiles,
+      } as unknown as DocumentDefinition);
 
       expect(addSpy).not.toHaveBeenCalled();
       expect(files[WRAPPER_PATH]).toBeUndefined();

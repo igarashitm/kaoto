@@ -176,10 +176,11 @@ export class DataMapperOutputValidationService {
   }
 
   /**
-   * Keeps the validator step in step with the target body after the user changed the target schema.
-   * - validation enabled: points the validator to the new schema (or wrapper), removes it for a Primitive target;
-   * - validation disabled: adds the validator when the target changes from none/Primitive to a schema (enabled by
-   *   default). A user who disabled validation on a schema target keeps it disabled.
+   * Keeps an already-enabled validator step in step with the target body after the user changed the target schema:
+   * points it to the new schema (or wrapper), or removes it for a Primitive target (nothing to validate against).
+   *
+   * Never turns validation on: a target that did not have a validator keeps not having one, whatever it changes
+   * to. Enabling validation is always an explicit user action, through {@link setOutputValidation}.
    *
    * Call this after the target body metadata has been updated.
    *
@@ -188,7 +189,6 @@ export class DataMapperOutputValidationService {
    * @param entitiesContext The entities context
    * @param metadata The DataMapper metadata, already updated with the new target body
    * @param definition The new target body definition (the source of the schema file content)
-   * @param previousType The target body type before the change
    * @returns Whether validation is enabled afterwards
    */
   static async syncOnTargetChange(
@@ -197,41 +197,27 @@ export class DataMapperOutputValidationService {
     entitiesContext: EntitiesContextResult,
     metadata: IDataMapperMetadata,
     definition: DocumentDefinition,
-    previousType: DocumentDefinitionType | undefined,
   ): Promise<boolean> {
-    const { targetBody, xsltPath } = metadata;
-    const isTargetPrimitive = definition.definitionType === DocumentDefinitionType.Primitive;
-    const definitionFiles = definition.definitionFiles ?? {};
-    const resolveResource = () =>
-      DataMapperOutputValidationService.resolveValidationResource(api, targetBody, xsltPath, definitionFiles);
+    if (!DataMapperValidationStepService.isValidationEnabled(vizNode)) {
+      return false;
+    }
 
-    if (DataMapperValidationStepService.isValidationEnabled(vizNode)) {
-      if (isTargetPrimitive) {
-        // `updateValidationStep` removes the validator for a Primitive target.
-        DataMapperValidationStepService.updateValidationStep(vizNode, targetBody, entitiesContext);
-        await DataMapperMetadataService.deleteValidationWrapper(api, xsltPath);
-      } else {
-        const resourceUri = await resolveResource();
-        DataMapperValidationStepService.updateValidationStep(vizNode, targetBody, entitiesContext, resourceUri);
-      }
-    } else if (DataMapperOutputValidationService.shouldEnableOnTargetChange(vizNode, previousType, isTargetPrimitive)) {
-      const resourceUri = await resolveResource();
-      DataMapperValidationStepService.addValidationStep(vizNode, targetBody, entitiesContext, resourceUri);
+    const { targetBody, xsltPath } = metadata;
+    if (definition.definitionType === DocumentDefinitionType.Primitive) {
+      // `updateValidationStep` removes the validator for a Primitive target.
+      DataMapperValidationStepService.updateValidationStep(vizNode, targetBody, entitiesContext);
+      await DataMapperMetadataService.deleteValidationWrapper(api, xsltPath);
+    } else {
+      const definitionFiles = definition.definitionFiles ?? {};
+      const resourceUri = await DataMapperOutputValidationService.resolveValidationResource(
+        api,
+        targetBody,
+        xsltPath,
+        definitionFiles,
+      );
+      DataMapperValidationStepService.updateValidationStep(vizNode, targetBody, entitiesContext, resourceUri);
     }
 
     return DataMapperValidationStepService.isValidationEnabled(vizNode);
-  }
-
-  /**
-   * Validation is on by default once the target becomes a schema. A user who turned it off on a schema target
-   * keeps it off, which is why only a change away from none or Primitive counts.
-   */
-  private static shouldEnableOnTargetChange(
-    vizNode: IVisualizationNode,
-    previousType: DocumentDefinitionType | undefined,
-    isTargetPrimitive: boolean,
-  ): boolean {
-    const hadNoSchemaTarget = previousType === undefined || previousType === DocumentDefinitionType.Primitive;
-    return hadNoSchemaTarget && !isTargetPrimitive && DataMapperValidationStepService.canAddValidationStep(vizNode);
   }
 }

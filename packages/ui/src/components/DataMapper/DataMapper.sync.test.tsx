@@ -173,7 +173,7 @@ describe('DataMapper sync — onUpdateDocument validation step synchronization',
     expect(addSpy).not.toHaveBeenCalled();
   });
 
-  it('2. schema changed, validation NOT enabled → auto-add via addValidationStep', async () => {
+  it('2. schema changed, validation NOT enabled → no validator is added (never enabled automatically)', async () => {
     metadata.targetBody = { type: DocumentDefinitionType.Primitive, filePath: [] };
 
     const addSpy = vi.spyOn(DataMapperValidationStepService, 'addValidationStep').mockImplementation(() => {});
@@ -188,14 +188,7 @@ describe('DataMapper sync — onUpdateDocument validation step synchronization',
     await waitFor(() => {
       expect(DataMapperMetadataService.updateTargetBodyMetadata).toHaveBeenCalled();
     });
-    await waitFor(() => {
-      expect(addSpy).toHaveBeenCalledWith(
-        vizNodeWithoutValidator,
-        expect.objectContaining({ type: DocumentDefinitionType.XML_SCHEMA, filePath: ['ShipOrder.xsd'] }),
-        mockEntitiesContext,
-        'ShipOrder.xsd',
-      );
-    });
+    expect(addSpy).not.toHaveBeenCalled();
     expect(updateSpy).not.toHaveBeenCalled();
   });
 

@@ -116,8 +116,6 @@ export const DataMapper: FunctionComponent<IDataMapperProps> = ({ vizNode }) => 
           }
           break;
         case DocumentType.TARGET_BODY: {
-          // Captured before the update, which changes `metadata.targetBody` in place.
-          const previousType = metadata.targetBody?.type;
           await DataMapperMetadataService.updateTargetBodyMetadata(ctx, metadataId, metadata, definition);
           if (vizNode) {
             const isOutputValidationEnabled = await DataMapperOutputValidationService.syncOnTargetChange(
@@ -126,7 +124,6 @@ export const DataMapper: FunctionComponent<IDataMapperProps> = ({ vizNode }) => 
               entitiesContext,
               metadata,
               definition,
-              previousType,
             );
             return { isOutputValidationEnabled };
           }
